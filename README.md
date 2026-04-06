@@ -79,6 +79,9 @@ Notes:
 - the default deployment starts the controller without Prometheus query flags
 - without live telemetry flags, the controller still reconciles policies and
   writes status, but telemetry readiness will remain `unsupported`
+- pushes to `main` publish `ghcr.io/oswalpalash/skale-controller:main` and
+  `ghcr.io/oswalpalash/skale-controller:sha-<commit>`
+- release tags publish versioned images and refresh `ghcr.io/oswalpalash/skale-controller:latest`
 
 See [`docs/LIVE_CONTROLLER_SETUP.md`](./docs/LIVE_CONTROLLER_SETUP.md)
 for the operator-facing setup path and the exact telemetry contract.

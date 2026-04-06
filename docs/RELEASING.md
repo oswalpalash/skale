@@ -1,8 +1,7 @@
 # Releasing
 
 This repository does not yet publish automated tagged releases, but the codebase
-now has the minimum plumbing needed for versioned binaries and a controller
-image.
+now publishes controller images automatically from GitHub Actions.
 
 ## Build Metadata
 
@@ -20,6 +19,20 @@ All shipped binaries expose `-version`.
 make build VERSION=v0.1.0
 make docker-build IMAGE=ghcr.io/oswalpalash/skale-controller:v0.1.0 VERSION=v0.1.0
 ```
+
+## Automatic Publishing
+
+Pushes to `main` publish:
+
+- `ghcr.io/oswalpalash/skale-controller:main`
+- `ghcr.io/oswalpalash/skale-controller:sha-<commit>`
+
+Tag pushes matching `v*` publish:
+
+- `ghcr.io/oswalpalash/skale-controller:vX.Y.Z`
+- `ghcr.io/oswalpalash/skale-controller:latest`
+
+The release workflow also uploads versioned binaries to the GitHub Release.
 
 ## Pre-Release Checks
 

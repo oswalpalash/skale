@@ -53,6 +53,7 @@ jobs:
           images: ghcr.io/oswalpalash/skale-controller
           tags: |
             type=ref,event=tag
+            type=raw,value=latest
 
       - name: Build and push controller image
         uses: docker/build-push-action@v6
