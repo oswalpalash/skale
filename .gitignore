@@ -1,0 +1,11 @@
+bin/
+dist/
+coverage.out
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.tmp
+*.swp
+*.swo
+.envrc

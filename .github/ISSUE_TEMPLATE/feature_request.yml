@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose a scoped enhancement that fits the current product wedge.
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What operator problem is not handled well today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Keep the request concrete and scoped. Explain why it fits the v1 recommendation-first and replay-first posture.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

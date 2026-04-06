@@ -1,0 +1,19 @@
+apiVersion: skale.io/v1alpha1
+kind: PredictiveScalingPolicy
+metadata:
+  name: checkout-api-predictive
+  namespace: skale-demo
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: checkout-api
+  mode: recommendationOnly
+  forecastHorizon: 5m
+  warmup:
+    estimatedReadyDuration: 45s
+  confidenceThreshold: 0.7
+  minReplicas: 2
+  maxReplicas: 8
+  cooldownWindow: 5m
+  nodeHeadroomSanity: requireForScaleUp

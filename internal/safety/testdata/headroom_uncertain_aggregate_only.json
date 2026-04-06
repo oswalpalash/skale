@@ -1,0 +1,23 @@
+{
+  "additionalPodsNeeded": 4,
+  "expectedStatus": "uncertain",
+  "expectedEstimatedAdditionalPods": 6,
+  "signal": {
+    "state": "ready",
+    "observedAt": "2026-04-02T12:00:00Z",
+    "podRequests": {
+      "cpuMilli": 250,
+      "memoryBytes": 536870912
+    },
+    "clusterSummary": {
+      "allocatable": {
+        "cpuMilli": 24000,
+        "memoryBytes": 51539607552
+      },
+      "requested": {
+        "cpuMilli": 22500,
+        "memoryBytes": 46170898432
+      }
+    }
+  }
+}

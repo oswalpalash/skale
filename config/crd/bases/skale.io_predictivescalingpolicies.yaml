@@ -1,0 +1,389 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: predictivescalingpolicies.skale.io
+spec:
+  group: skale.io
+  names:
+    kind: PredictiveScalingPolicy
+    listKind: PredictiveScalingPolicyList
+    plural: predictivescalingpolicies
+    shortNames:
+    - psp
+    singular: predictivescalingpolicy
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: PredictiveScalingPolicy is the primary CRD for replay-backed
+          burst-readiness evaluation.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              PredictiveScalingPolicySpec declares the desired recommendation-only policy surface.
+              The v1 schema is intentionally small and constrained to HPA-managed Deployments.
+            properties:
+              blackoutWindows:
+                items:
+                  description: BlackoutWindow disables recommendation surfacing during
+                    a bounded time range.
+                  properties:
+                    end:
+                      format: date-time
+                      type: string
+                    name:
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    reason:
+                      maxLength: 256
+                      type: string
+                    start:
+                      format: date-time
+                      type: string
+                  required:
+                  - end
+                  - name
+                  - start
+                  type: object
+                maxItems: 16
+                type: array
+              confidenceThreshold:
+                default: 0.7
+                maximum: 1
+                minimum: 0.1
+                type: number
+              cooldownWindow:
+                default: 5m
+                description: CooldownWindow is the stabilization period applied between
+                  surfaced recommendation changes.
+                type: string
+              dependencyHealthChecks:
+                items:
+                  description: DependencyHealthCheck defines a small v1 contract for
+                    gating recommendations on external health.
+                  properties:
+                    minHealthyRatio:
+                      maximum: 1
+                      minimum: 0.01
+                      type: number
+                    name:
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    query:
+                      description: Query is expected to resolve to a 0..1 healthy
+                        ratio in v1.
+                      maxLength: 2048
+                      minLength: 1
+                      type: string
+                    type:
+                      default: prometheusQuery
+                      enum:
+                      - prometheusQuery
+                      type: string
+                  required:
+                  - minHealthyRatio
+                  - name
+                  - query
+                  type: object
+                maxItems: 8
+                type: array
+              forecastHorizon:
+                default: 5m
+                description: ForecastHorizon is the short-horizon lookahead for replay
+                  and recommendation evaluation.
+                type: string
+              knownEvents:
+                items:
+                  description: KnownEvent marks an operator-supplied window that may
+                    influence replay and evaluation later.
+                  properties:
+                    end:
+                      format: date-time
+                      type: string
+                    name:
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    note:
+                      maxLength: 256
+                      type: string
+                    start:
+                      format: date-time
+                      type: string
+                  required:
+                  - end
+                  - name
+                  - start
+                  type: object
+                maxItems: 16
+                type: array
+              maxReplicas:
+                format: int32
+                minimum: 1
+                type: integer
+              minReplicas:
+                format: int32
+                minimum: 1
+                type: integer
+              mode:
+                default: recommendationOnly
+                enum:
+                - recommendationOnly
+                type: string
+              nodeHeadroomSanity:
+                default: requireForScaleUp
+                enum:
+                - disabled
+                - requireForScaleUp
+                type: string
+              scaleDown:
+                description: ScaleStepPolicy bounds how much a recommendation may
+                  change in one evaluation.
+                properties:
+                  maxReplicasChange:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - maxReplicasChange
+                type: object
+              scaleUp:
+                description: ScaleStepPolicy bounds how much a recommendation may
+                  change in one evaluation.
+                properties:
+                  maxReplicasChange:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - maxReplicasChange
+                type: object
+              targetRef:
+                description: |-
+                  TargetReference selects the supported workload under evaluation.
+                  The target is assumed to live in the same namespace as the policy.
+                properties:
+                  apiVersion:
+                    default: apps/v1
+                    enum:
+                    - apps/v1
+                    type: string
+                  kind:
+                    default: Deployment
+                    enum:
+                    - Deployment
+                    type: string
+                  name:
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              warmup:
+                description: WarmupSettings captures the minimum warmup input needed
+                  for bounded recommendations.
+                properties:
+                  estimatedReadyDuration:
+                    default: 45s
+                    description: EstimatedReadyDuration is the typical time for a
+                      new replica to become useful.
+                    type: string
+                type: object
+            required:
+            - maxReplicas
+            - minReplicas
+            - targetRef
+            - warmup
+            type: object
+          status:
+            description: PredictiveScalingPolicyStatus holds the latest operator-facing
+              evaluation state.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastForecast:
+                description: ForecastSummary is the latest explainable forecast digest
+                  surfaced to operators.
+                properties:
+                  confidence:
+                    type: number
+                  evaluatedAt:
+                    format: date-time
+                    type: string
+                  horizon:
+                    type: string
+                  message:
+                    type: string
+                  method:
+                    type: string
+                type: object
+              lastRecommendation:
+                description: RecommendationSummary is the latest surfaced recommendation
+                  decision.
+                properties:
+                  baselineReplicas:
+                    format: int32
+                    type: integer
+                  boundedReplicas:
+                    format: int32
+                    type: integer
+                  evaluatedAt:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  recommendedReplicas:
+                    format: int32
+                    type: integer
+                  state:
+                    type: string
+                type: object
+              lastReplay:
+                description: ReplaySummaryDigest points operators to the latest replay
+                  output or digest.
+                properties:
+                  digest:
+                    type: string
+                  reportRef:
+                    type: string
+                  windowEnd:
+                    format: date-time
+                    type: string
+                  windowStart:
+                    format: date-time
+                    type: string
+                type: object
+              observedWorkload:
+                description: ObservedWorkloadIdentity reports the resolved workload
+                  the controller evaluated.
+                properties:
+                  apiVersion:
+                    type: string
+                  hpaName:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                type: object
+              suppressionReasons:
+                items:
+                  description: SuppressionReason describes why a recommendation was
+                    not surfaced.
+                  properties:
+                    code:
+                      type: string
+                    message:
+                      type: string
+                  type: object
+                type: array
+              telemetryReadiness:
+                description: TelemetryReadinessSummary reports whether the controller
+                  has enough signal quality to evaluate safely.
+                properties:
+                  checkedAt:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+                  signals:
+                    items:
+                      description: SignalHealth reports readiness for one source signal.
+                      properties:
+                        message:
+                          type: string
+                        name:
+                          type: string
+                        state:
+                          type: string
+                      type: object
+                    type: array
+                  state:
+                    type: string
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

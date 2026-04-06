@@ -1,0 +1,554 @@
+{
+  "schemaVersion": "v1alpha1",
+  "target": {
+    "namespace": "skale-demo",
+    "name": "checkout-api"
+  },
+  "window": {
+    "start": "2026-04-02T11:45:00Z",
+    "end": "2026-04-02T12:45:00Z"
+  },
+  "step": "5m",
+  "lookback": "50m",
+  "policy": {
+    "workload": "skale-demo/checkout-api",
+    "forecastHorizon": "10m",
+    "forecastSeasonality": "20m",
+    "warmup": "10m",
+    "targetUtilization": 0.8,
+    "confidenceThreshold": 0.7,
+    "minReplicas": 2,
+    "maxReplicas": 4,
+    "cooldownWindow": "5m",
+    "nodeHeadroomMode": "disabled"
+  },
+  "options": {
+    "capacityLookback": "40m",
+    "minimumCapacitySamples": 4,
+    "readiness": {
+      "minimumLookback": "30m",
+      "expectedResolution": "5m",
+      "degradedMissingFraction": 0.1,
+      "unsupportedMissingFraction": 0.25,
+      "degradedResolutionMultiplier": 2,
+      "unsupportedResolutionMultiplier": 4,
+      "degradedGapMultiplier": 2,
+      "unsupportedGapMultiplier": 4,
+      "minimumWarmupSamplesToEstimate": 3,
+      "demandStepChangeThreshold": 2,
+      "degradedDemandUnstableFraction": 0.8,
+      "unsupportedDemandUnstableFraction": 1
+    }
+  },
+  "snapshot": {
+    "window": {
+      "start": "2026-04-02T10:55:00Z",
+      "end": "2026-04-02T12:45:00Z"
+    },
+    "demand": {
+      "Name": "demand",
+      "Samples": [
+        {
+          "Timestamp": "2026-04-02T10:55:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:00:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:05:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:10:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:15:00Z",
+          "Value": 280
+        },
+        {
+          "Timestamp": "2026-04-02T11:20:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:25:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:30:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:35:00Z",
+          "Value": 280
+        },
+        {
+          "Timestamp": "2026-04-02T11:40:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:45:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:50:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T11:55:00Z",
+          "Value": 280
+        },
+        {
+          "Timestamp": "2026-04-02T12:00:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T12:05:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T12:10:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T12:15:00Z",
+          "Value": 280
+        },
+        {
+          "Timestamp": "2026-04-02T12:20:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T12:25:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T12:30:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T12:35:00Z",
+          "Value": 280
+        },
+        {
+          "Timestamp": "2026-04-02T12:40:00Z",
+          "Value": 150
+        },
+        {
+          "Timestamp": "2026-04-02T12:45:00Z",
+          "Value": 150
+        }
+      ],
+      "ObservedLabelSignatures": [
+        "synthetic-demo-hpa-lag-20m"
+      ],
+      "Unit": "rps"
+    },
+    "replicas": {
+      "Name": "replicas",
+      "Samples": [
+        {
+          "Timestamp": "2026-04-02T10:55:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:00:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:05:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:10:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:15:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:20:00Z",
+          "Value": 3
+        },
+        {
+          "Timestamp": "2026-04-02T11:25:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:30:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:35:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:40:00Z",
+          "Value": 3
+        },
+        {
+          "Timestamp": "2026-04-02T11:45:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:50:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T11:55:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T12:00:00Z",
+          "Value": 3
+        },
+        {
+          "Timestamp": "2026-04-02T12:05:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T12:10:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T12:15:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T12:20:00Z",
+          "Value": 3
+        },
+        {
+          "Timestamp": "2026-04-02T12:25:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T12:30:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T12:35:00Z",
+          "Value": 2
+        },
+        {
+          "Timestamp": "2026-04-02T12:40:00Z",
+          "Value": 3
+        },
+        {
+          "Timestamp": "2026-04-02T12:45:00Z",
+          "Value": 2
+        }
+      ],
+      "ObservedLabelSignatures": [
+        "synthetic-demo-hpa-lag-20m"
+      ],
+      "Unit": "replicas"
+    },
+    "cpu": {
+      "Name": "cpu",
+      "Samples": [
+        {
+          "Timestamp": "2026-04-02T10:55:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:00:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:05:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:10:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:15:00Z",
+          "Value": 0.86
+        },
+        {
+          "Timestamp": "2026-04-02T11:20:00Z",
+          "Value": 0.7
+        },
+        {
+          "Timestamp": "2026-04-02T11:25:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:30:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:35:00Z",
+          "Value": 0.86
+        },
+        {
+          "Timestamp": "2026-04-02T11:40:00Z",
+          "Value": 0.7
+        },
+        {
+          "Timestamp": "2026-04-02T11:45:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:50:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T11:55:00Z",
+          "Value": 0.86
+        },
+        {
+          "Timestamp": "2026-04-02T12:00:00Z",
+          "Value": 0.7
+        },
+        {
+          "Timestamp": "2026-04-02T12:05:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T12:10:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T12:15:00Z",
+          "Value": 0.86
+        },
+        {
+          "Timestamp": "2026-04-02T12:20:00Z",
+          "Value": 0.7
+        },
+        {
+          "Timestamp": "2026-04-02T12:25:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T12:30:00Z",
+          "Value": 0.58
+        },
+        {
+          "Timestamp": "2026-04-02T12:35:00Z",
+          "Value": 0.86
+        },
+        {
+          "Timestamp": "2026-04-02T12:40:00Z",
+          "Value": 0.7
+        },
+        {
+          "Timestamp": "2026-04-02T12:45:00Z",
+          "Value": 0.58
+        }
+      ],
+      "ObservedLabelSignatures": [
+        "synthetic-demo-hpa-lag-20m"
+      ],
+      "Unit": "ratio"
+    },
+    "memory": {
+      "Name": "memory",
+      "Samples": [
+        {
+          "Timestamp": "2026-04-02T10:55:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:00:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:05:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:10:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:15:00Z",
+          "Value": 0.64
+        },
+        {
+          "Timestamp": "2026-04-02T11:20:00Z",
+          "Value": 0.59
+        },
+        {
+          "Timestamp": "2026-04-02T11:25:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:30:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:35:00Z",
+          "Value": 0.64
+        },
+        {
+          "Timestamp": "2026-04-02T11:40:00Z",
+          "Value": 0.59
+        },
+        {
+          "Timestamp": "2026-04-02T11:45:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:50:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T11:55:00Z",
+          "Value": 0.64
+        },
+        {
+          "Timestamp": "2026-04-02T12:00:00Z",
+          "Value": 0.59
+        },
+        {
+          "Timestamp": "2026-04-02T12:05:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T12:10:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T12:15:00Z",
+          "Value": 0.64
+        },
+        {
+          "Timestamp": "2026-04-02T12:20:00Z",
+          "Value": 0.59
+        },
+        {
+          "Timestamp": "2026-04-02T12:25:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T12:30:00Z",
+          "Value": 0.56
+        },
+        {
+          "Timestamp": "2026-04-02T12:35:00Z",
+          "Value": 0.64
+        },
+        {
+          "Timestamp": "2026-04-02T12:40:00Z",
+          "Value": 0.59
+        },
+        {
+          "Timestamp": "2026-04-02T12:45:00Z",
+          "Value": 0.56
+        }
+      ],
+      "ObservedLabelSignatures": [
+        "synthetic-demo-hpa-lag-20m"
+      ],
+      "Unit": "ratio"
+    },
+    "warmup": {
+      "Name": "warmup",
+      "Samples": [
+        {
+          "Timestamp": "2026-04-02T10:55:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:00:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:05:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:10:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:15:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:20:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:25:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:30:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:35:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:40:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:45:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:50:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T11:55:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:00:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:05:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:10:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:15:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:20:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:25:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:30:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:35:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:40:00Z",
+          "Value": 600
+        },
+        {
+          "Timestamp": "2026-04-02T12:45:00Z",
+          "Value": 600
+        }
+      ],
+      "ObservedLabelSignatures": [
+        "synthetic-demo-hpa-lag-20m"
+      ],
+      "Unit": "seconds"
+    }
+  }
+}

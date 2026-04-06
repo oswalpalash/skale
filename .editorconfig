@@ -1,0 +1,18 @@
+root = true
+
+[*.{go,sh,yaml,yml,md}]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.go]
+indent_size = 4
+
+[*.{sh,yaml,yml,md}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+trim_trailing_whitespace = false

@@ -1,0 +1,81 @@
+{
+  "additionalPodsNeeded": 4,
+  "expectedStatus": "insufficient",
+  "expectedEstimatedAdditionalPods": 1,
+  "signal": {
+    "state": "ready",
+    "observedAt": "2026-04-02T12:00:00Z",
+    "podRequests": {
+      "cpuMilli": 500,
+      "memoryBytes": 1073741824
+    },
+    "clusterSummary": {
+      "allocatable": {
+        "cpuMilli": 16000,
+        "memoryBytes": 34359738368
+      },
+      "requested": {
+        "cpuMilli": 12000,
+        "memoryBytes": 25769803776
+      }
+    },
+    "nodes": [
+      {
+        "name": "pool-b-1",
+        "schedulable": true,
+        "summary": {
+          "allocatable": {
+            "cpuMilli": 4000,
+            "memoryBytes": 8589934592
+          },
+          "requested": {
+            "cpuMilli": 3600,
+            "memoryBytes": 6442450944
+          }
+        }
+      },
+      {
+        "name": "pool-b-2",
+        "schedulable": true,
+        "summary": {
+          "allocatable": {
+            "cpuMilli": 4000,
+            "memoryBytes": 8589934592
+          },
+          "requested": {
+            "cpuMilli": 3500,
+            "memoryBytes": 8053063680
+          }
+        }
+      },
+      {
+        "name": "pool-b-3",
+        "schedulable": true,
+        "summary": {
+          "allocatable": {
+            "cpuMilli": 4000,
+            "memoryBytes": 8589934592
+          },
+          "requested": {
+            "cpuMilli": 3000,
+            "memoryBytes": 7516192768
+          }
+        }
+      },
+      {
+        "name": "pool-b-4",
+        "schedulable": false,
+        "summary": {
+          "allocatable": {
+            "cpuMilli": 4000,
+            "memoryBytes": 8589934592
+          },
+          "requested": {
+            "cpuMilli": 1900,
+            "memoryBytes": 3758096384
+          }
+        }
+      }
+    ]
+  }
+}

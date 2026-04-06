@@ -1,0 +1,76 @@
+name: Release Build
+
+permissions:
+  contents: write
+  packages: write
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: make test-ci
+
+      - name: Prepare release metadata
+        id: prep
+        run: |
+          echo "build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_OUTPUT"
+
+      - name: Build versioned binaries
+        run: |
+          mkdir -p dist
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          BUILD_DATE="${{ steps.prep.outputs.build_date }}"
+          LDFLAGS="-X github.com/oswalpalash/skale/internal/version.Version=${VERSION} -X github.com/oswalpalash/skale/internal/version.Commit=${COMMIT} -X github.com/oswalpalash/skale/internal/version.BuildDate=${BUILD_DATE}"
+          CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o dist/controller ./cmd/controller
+          CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o dist/replayctl ./cmd/replayctl
+          CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o dist/livefixture ./cmd/livefixture
+          CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o dist/demofixture ./cmd/demofixture
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/oswalpalash/skale-controller
+          tags: |
+            type=ref,event=tag
+
+      - name: Build and push controller image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.prep.outputs.build_date }}
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/controller
+            dist/replayctl
+            dist/livefixture
+            dist/demofixture

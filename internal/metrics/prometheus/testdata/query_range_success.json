@@ -1,0 +1,18 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "matrix",
+    "result": [
+      {
+        "metric": {
+          "namespace": "payments",
+          "deployment": "checkout"
+        },
+        "values": [
+          [1775131200, "120.5"],
+          [1775131230, "133.0"]
+        ]
+      }
+    ]
+  }
+}

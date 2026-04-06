@@ -1,0 +1,34 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: make test-ci
+
+      - name: Verify CRD generation
+        run: |
+          make manifests
+          git diff --exit-code -- config/crd/bases
+
+      - name: Validate shell scripts
+        run: bash -n hack/*.sh
+
+      - name: Build controller image
+        run: docker build -t ghcr.io/oswalpalash/skale-controller:ci .
