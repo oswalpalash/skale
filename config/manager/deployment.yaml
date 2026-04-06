@@ -22,7 +22,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: manager
-          image: ghcr.io/oswalpalash/skale-controller:dev
+          image: ghcr.io/oswalpalash/skale-controller:main
           imagePullPolicy: IfNotPresent
           args:
             - --leader-elect

@@ -53,18 +53,6 @@ Out of scope in v1:
 The repository now includes a real controller deployment manifest instead of
 placeholder config directories.
 
-Build a local image:
-
-```bash
-make docker-build IMAGE=ghcr.io/oswalpalash/skale-controller:dev VERSION=dev
-```
-
-If you are using `kind`, load the image into the cluster:
-
-```bash
-kind load docker-image ghcr.io/oswalpalash/skale-controller:dev --name skale
-```
-
 Install the CRD, namespace, RBAC, and controller:
 
 ```bash
@@ -73,15 +61,23 @@ kubectl apply -k ./config/default
 
 Notes:
 
-- the default deployment image is `ghcr.io/oswalpalash/skale-controller:dev`
-- for non-`kind` clusters, push that image to a registry your cluster can reach
-  and update [`config/manager/deployment.yaml`](./config/manager/deployment.yaml)
+- the default deployment image is `ghcr.io/oswalpalash/skale-controller:main`
+- for pinned releases, update
+  [`config/manager/deployment.yaml`](./config/manager/deployment.yaml) to a
+  versioned tag such as `ghcr.io/oswalpalash/skale-controller:v0.1.0`
 - the default deployment starts the controller without Prometheus query flags
 - without live telemetry flags, the controller still reconciles policies and
   writes status, but telemetry readiness will remain `unsupported`
 - pushes to `main` publish `ghcr.io/oswalpalash/skale-controller:main` and
   `ghcr.io/oswalpalash/skale-controller:sha-<commit>`
 - release tags publish versioned images and refresh `ghcr.io/oswalpalash/skale-controller:latest`
+- local development images are still useful when you are testing unpushed
+  changes:
+
+```bash
+make docker-build IMAGE=ghcr.io/oswalpalash/skale-controller:dev VERSION=dev
+kind load docker-image ghcr.io/oswalpalash/skale-controller:dev --name skale
+```
 
 See [`docs/LIVE_CONTROLLER_SETUP.md`](./docs/LIVE_CONTROLLER_SETUP.md)
 for the operator-facing setup path and the exact telemetry contract.

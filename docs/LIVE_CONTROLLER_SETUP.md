@@ -18,22 +18,9 @@ It does not patch workload replicas in v1.
 
 ## Install
 
-Build an image:
+The default manifest already points at the published rolling image:
 
-```bash
-make docker-build IMAGE=ghcr.io/oswalpalash/skale-controller:dev VERSION=dev
-```
-
-If you are using `kind`, load it into the cluster:
-
-```bash
-kind load docker-image ghcr.io/oswalpalash/skale-controller:dev --name skale
-```
-
-If you are using another cluster, publish the image to a registry your cluster
-can reach and update
-[`config/manager/deployment.yaml`](../config/manager/deployment.yaml)
-before applying manifests.
+`ghcr.io/oswalpalash/skale-controller:main`
 
 Apply the install manifests:
 
@@ -45,6 +32,18 @@ The deployment in
 [`config/manager/deployment.yaml`](../config/manager/deployment.yaml)
 starts the controller with probes and leader election, but no Prometheus query
 configuration.
+
+If you want a pinned release instead of the rolling `main` image, update
+[`config/manager/deployment.yaml`](../config/manager/deployment.yaml)
+to a versioned tag such as `ghcr.io/oswalpalash/skale-controller:v0.1.0`
+before applying manifests.
+
+For local development, you can still build and load an unpublished image:
+
+```bash
+make docker-build IMAGE=ghcr.io/oswalpalash/skale-controller:dev VERSION=dev
+kind load docker-image ghcr.io/oswalpalash/skale-controller:dev --name skale
+```
 
 ## Required Live Telemetry
 
