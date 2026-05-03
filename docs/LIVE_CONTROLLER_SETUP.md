@@ -233,6 +233,19 @@ The dashboard intentionally lists all discovered workloads, including workloads
 that do not have a known scaling contract. Those workloads are shown as
 `needs scaling contract` rather than receiving guessed replica counts.
 
+The dashboard timeline defaults to the last `30m`. Operators can widen the
+range to `1h`, `3h`, or `6h`; the selected namespace, workload, and window are
+stored in the URL hash so a refresh does not lose context.
+
+Recommendation history is Prometheus-backed. The CRD status keeps only
+`.status.lastRecommendation`, so a dashboard with no scraped recommendation
+history can only draw one latest recommendation point. Once Prometheus is
+scraping the controller metrics endpoint, the dashboard queries
+`skale_recommendation_recommended_replicas` over the selected window and draws
+the historical recommendation path. The controller does not export numeric
+recommendation samples during telemetry learning or other telemetry-not-ready
+states.
+
 Discovery status is stored separately from policy status in the
 `skale-discovery-inventory` ConfigMap. This separation is intentional:
 cluster-wide discovery can identify candidates, but full recommendations require

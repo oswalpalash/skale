@@ -137,6 +137,25 @@ Controller flags:
 - `--discovery-interval` changes the scan interval
 - `--dashboard-bind-address=0` disables the dashboard
 
+## Dashboard Behavior
+
+The read-only dashboard is an operator evidence surface, not an actuation
+surface. It starts at the namespace list, groups namespaces by whether they
+contain policy-backed or candidate workloads, and then drills into workload
+telemetry and recommendation state.
+
+The workload timeline defaults to the last `30m`. Operators can widen the view
+to `1h`, `3h`, or `6h`; the selected namespace, workload, and time window are
+kept in the URL hash so refreshes preserve context.
+
+Recommendation history comes from Prometheus, not from the CRD. The CRD keeps
+only `.status.lastRecommendation`, which is intentionally the latest decision
+summary. When Prometheus scrapes the controller metrics endpoint, the dashboard
+queries historical `skale_recommendation_recommended_replicas` samples and
+draws the recommendation path over time. If Prometheus has not scraped enough
+points yet, the dashboard falls back to showing the latest recommendation as a
+single point.
+
 ## Live Controller Telemetry Contract
 
 For continuous live evaluation, configure the controller with:
@@ -160,6 +179,9 @@ Important details:
 - demand and replica queries are the minimum live-series contract
 - CPU and memory are treated as required for readiness on this branch
 - warmup may come from fixed policy configuration or a query-backed proxy
+- surfaced recommendation replicas are exported as controller Prometheus
+  metrics only after telemetry is ready; learning-phase recommendations are not
+  published as numeric recommendation samples
 - dependency health checks use operator-supplied PromQL queries that must return
   one healthy-ratio series in the `0..1` range
 - node headroom is a conservative request-based sanity check, not a scheduler or
