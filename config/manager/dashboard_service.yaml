@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: skale-dashboard
+  namespace: skale-system
+  labels:
+    app.kubernetes.io/name: skale-dashboard
+    app.kubernetes.io/part-of: skale
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: skale-controller
+  ports:
+    - name: http
+      port: 8082
+      targetPort: dashboard

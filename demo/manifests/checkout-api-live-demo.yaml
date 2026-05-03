@@ -21,6 +21,10 @@ spec:
       labels:
         app.kubernetes.io/name: checkout-api
         app.kubernetes.io/part-of: skale-live-demo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: checkout-api
@@ -32,12 +36,15 @@ spec:
           args:
             - |
               import hashlib
+              import os
               import threading
               from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
               requests_total = 0
               lock = threading.Lock()
-              loops = 180000
+              loops = 60000
+              namespace = os.environ.get("POD_NAMESPACE", "skale-live-demo")
+              deployment = "checkout-api"
 
               class Handler(BaseHTTPRequestHandler):
                   def do_GET(self):
@@ -46,6 +53,20 @@ spec:
                           self.send_response(200)
                           self.end_headers()
                           self.wfile.write(b"ready")
+                          return
+                      if self.path == "/metrics":
+                          with lock:
+                              total = requests_total
+                          body = (
+                              "# HELP skale_demo_requests_total Total demo HTTP requests.\n"
+                              "# TYPE skale_demo_requests_total counter\n"
+                              f"skale_demo_requests_total{{namespace=\"{namespace}\",deployment=\"{deployment}\"}} {total}\n"
+                          ).encode()
+                          self.send_response(200)
+                          self.send_header("Content-Type", "text/plain; version=0.0.4")
+                          self.send_header("Content-Length", str(len(body)))
+                          self.end_headers()
+                          self.wfile.write(body)
                           return
 
                       data = b"skale-live-demo"
@@ -63,6 +84,11 @@ spec:
                       return
 
               ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - containerPort: 8080
               name: http
@@ -108,6 +134,24 @@ spec:
     name: checkout-api
   minReplicas: 2
   maxReplicas: 6
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 60
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 30
   metrics:
     - type: Resource
       resource:

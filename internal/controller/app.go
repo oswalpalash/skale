@@ -26,6 +26,7 @@ import (
 type Options struct {
 	MetricsBindAddress     string
 	HealthProbeBindAddress string
+	DashboardBindAddress   string
 	LeaderElection         bool
 	MetricsProvider        metrics.Provider
 	ForecastModel          forecast.Model
@@ -99,6 +100,19 @@ func Run(ctx context.Context, opts Options) error {
 			PublishPolicies: true,
 		}); err != nil {
 			return fmt.Errorf("setup cluster discovery runner: %w", err)
+		}
+	}
+
+	if opts.DashboardBindAddress != "0" {
+		if err := manager.Add(&DashboardServer{
+			Client:        manager.GetClient(),
+			Namespace:     opts.DiscoveryNamespace,
+			ConfigMapName: opts.DiscoveryConfigMapName,
+			BindAddress:   opts.DashboardBindAddress,
+			Metrics:       opts.MetricsProvider,
+			Now:           opts.Now,
+		}); err != nil {
+			return fmt.Errorf("setup dashboard server: %w", err)
 		}
 	}
 

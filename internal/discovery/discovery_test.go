@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -104,7 +105,7 @@ func TestScannerMarksWarmupGapNeedsConfiguration(t *testing.T) {
 	}
 }
 
-func TestScannerMarksNoHPADeploymentUnsupported(t *testing.T) {
+func TestScannerMarksNoHPADeploymentNeedsScalingContract(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.May, 3, 12, 0, 0, 0, time.UTC)
@@ -123,11 +124,17 @@ func TestScannerMarksNoHPADeploymentUnsupported(t *testing.T) {
 	}
 
 	finding := onlyFinding(t, inventory, "payments", "checkout-api")
-	if finding.Status != StatusUnsupported {
-		t.Fatalf("status = %q, want %q", finding.Status, StatusUnsupported)
+	if finding.Status != StatusNeedsScalingContract {
+		t.Fatalf("status = %q, want %q", finding.Status, StatusNeedsScalingContract)
 	}
-	if !containsReason(finding, ReasonNoHPA) {
-		t.Fatalf("expected no-HPA reason, got %#v", finding.Reasons)
+	if !containsReason(finding, ReasonScalingContractMissing) {
+		t.Fatalf("expected scaling-contract-missing reason, got %#v", finding.Reasons)
+	}
+	if !containsString(finding.MissingPrerequisites, "scaling contract") {
+		t.Fatalf("expected scaling contract missing prerequisite, got %#v", finding.MissingPrerequisites)
+	}
+	if inventory.Summary.NeedsScalingContract != 1 {
+		t.Fatalf("needsScalingContract = %d, want 1", inventory.Summary.NeedsScalingContract)
 	}
 }
 
@@ -158,6 +165,52 @@ func TestScannerMarksNonDeploymentHPATargetUnsupported(t *testing.T) {
 	}
 	if !containsReason(finding, ReasonOutsideV1Wedge) {
 		t.Fatalf("expected outside-v1 reason, got %#v", finding.Reasons)
+	}
+}
+
+func TestScannerInventoriesCommonUnsupportedWorkloadControllers(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.May, 3, 12, 0, 0, 0, time.UTC)
+	reader := fake.NewClientBuilder().
+		WithScheme(testScheme(t)).
+		WithObjects(
+			testStatefulSet("payments", "orders-db"),
+			testDaemonSet("observability", "node-agent"),
+			testJob("payments", "backfill"),
+			testCronJob("payments", "nightly-close"),
+		).
+		Build()
+
+	inventory, err := Scanner{
+		Reader: reader,
+		Now:    func() time.Time { return now },
+	}.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	expected := map[string]string{
+		"payments/orders-db":       "StatefulSet",
+		"observability/node-agent": "DaemonSet",
+		"payments/backfill":        "Job",
+		"payments/nightly-close":   "CronJob",
+	}
+	for id, kind := range expected {
+		namespace, name, _ := strings.Cut(id, "/")
+		finding := onlyFinding(t, inventory, namespace, name)
+		if finding.Workload.Kind != kind {
+			t.Fatalf("%s kind = %q, want %q", id, finding.Workload.Kind, kind)
+		}
+		if finding.Status != StatusUnsupported {
+			t.Fatalf("%s status = %q, want unsupported", id, finding.Status)
+		}
+		if !containsReason(finding, ReasonOutsideV1Wedge) {
+			t.Fatalf("%s expected outside-v1 reason, got %#v", id, finding.Reasons)
+		}
+	}
+	if inventory.Summary.Unsupported != 4 || inventory.Summary.Total != 4 {
+		t.Fatalf("unexpected summary %#v", inventory.Summary)
 	}
 }
 
@@ -364,6 +417,34 @@ func testDeployment(namespace, name string) *appsv1.Deployment {
 				},
 			},
 		},
+	}
+}
+
+func testStatefulSet(namespace, name string) *appsv1.StatefulSet {
+	replicas := int32(2)
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicas,
+		},
+	}
+}
+
+func testDaemonSet(namespace, name string) *appsv1.DaemonSet {
+	return &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+	}
+}
+
+func testJob(namespace, name string) *batchv1.Job {
+	return &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+	}
+}
+
+func testCronJob(namespace, name string) *batchv1.CronJob {
+	return &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 	}
 }
 

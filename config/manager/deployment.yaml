@@ -13,6 +13,10 @@ spec:
       app.kubernetes.io/name: skale-controller
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
       labels:
         app.kubernetes.io/name: skale-controller
         app.kubernetes.io/part-of: skale
@@ -28,11 +32,14 @@ spec:
             - --leader-elect
             - --metrics-bind-address=:8080
             - --health-probe-bind-address=:8081
+            - --dashboard-bind-address=:8082
           ports:
             - containerPort: 8080
               name: metrics
             - containerPort: 8081
               name: probes
+            - containerPort: 8082
+              name: dashboard
           readinessProbe:
             httpGet:
               path: /readyz

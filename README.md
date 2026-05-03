@@ -13,7 +13,10 @@ platform, not a node autoscaler, and not autonomous control-plane software.
 
 Supported today:
 
-- cluster-wide discovery inventory for Deployments and HPAs
+- cluster-wide discovery inventory for common Kubernetes workloads, with
+  recommendation eligibility limited to explicit scaling contracts
+- read-only workload qualification dashboard backed by discovery and policy
+  status
 - `PredictiveScalingPolicy` CRD in `skale.io/v1alpha1`
 - recommendation-only controller status updates
 - replay engine and offline report generation
@@ -41,7 +44,8 @@ Out of scope in v1:
 ## Repository Layout
 
 - [`cmd/controller`](./cmd/controller) runs the
-  recommendation-only controller and discovery publisher.
+  recommendation-only controller, discovery publisher, and read-only
+  qualification dashboard.
 - [`cmd/replayctl`](./cmd/replayctl) renders
   offline replay summaries, JSON, markdown, and self-contained HTML.
 - [`config/default`](./config/default) contains a
@@ -73,6 +77,12 @@ Notes:
   reconciles policies, but discovery findings will mostly be
   `needs configuration` and policy telemetry readiness will remain
   `unsupported`
+- the read-only dashboard is served on port `8082`; for local access:
+
+```bash
+kubectl port-forward -n skale-system svc/skale-dashboard 8082:8082
+```
+
 - pushes to `main` publish `ghcr.io/oswalpalash/skale-controller:main` and
   `ghcr.io/oswalpalash/skale-controller:sha-<commit>`
 - release tags publish versioned images and refresh `ghcr.io/oswalpalash/skale-controller:latest`
@@ -89,9 +99,9 @@ for the operator-facing setup path and the exact telemetry contract.
 
 ## Cluster Discovery
 
-Discovery is enabled by default. The controller scans all namespaces for
-Deployments and HPAs, classifies each workload, and writes the current inventory
-to a ConfigMap:
+Discovery is enabled by default. The controller scans all namespaces for common
+workload controllers and HPAs, classifies each workload, and writes the current
+inventory to a ConfigMap:
 
 ```bash
 kubectl get configmap -n skale-system skale-discovery-inventory \
@@ -107,8 +117,11 @@ Discovery classifications are:
   predictability evidence to run replay
 - `needs configuration`: likely relevant, but missing telemetry query mapping,
   warmup, target utilization, or other policy context
+- `needs scaling contract`: visible workload without an HPA or explicit Skale
+  policy contract; no replica recommendation is surfaced
 - `low confidence`: data exists, but forecast or burst evidence is weak
-- `unsupported`: outside the v1 wedge, no HPA, or telemetry is not usable
+- `unsupported`: outside the current supported target types or telemetry is not
+  usable
 
 The same ConfigMap includes `policy-drafts.yaml` for candidate and
 needs-configuration workloads. Those drafts are review material only. Full
@@ -122,6 +135,7 @@ Controller flags:
 - `--discovery-namespace` changes where the inventory ConfigMap is written
 - `--discovery-configmap` changes the ConfigMap name
 - `--discovery-interval` changes the scan interval
+- `--dashboard-bind-address=0` disables the dashboard
 
 ## Live Controller Telemetry Contract
 
@@ -202,6 +216,20 @@ Cluster-real live capture walkthrough:
   `SKALE_ALLOW_NON_KIND_CONTEXT=1`
 - no longer installs `metrics-server` implicitly; use `INSTALL_METRICS_SERVER=1`
   if you want the script to apply a pinned release manifest
+
+Local live-dashboard observability:
+
+- [`hack/setup-local-observability.sh`](./hack/setup-local-observability.sh)
+  installs the local Prometheus and kube-state-metrics stack used by the
+  dashboard demo
+- [`hack/start-local-demo-traffic.sh`](./hack/start-local-demo-traffic.sh)
+  starts deterministic jittered traffic for the checkout demo workload, so HPA
+  and Skale telemetry show repeatable low/high phases instead of a permanently
+  saturated service
+- [`demo/manifests/local-observability.yaml`](./demo/manifests/local-observability.yaml)
+  documents the exact scrape configuration
+- this setup is intended for kind-based development only; production Prometheus
+  labels and queries should be supplied by the operator
 
 ## Development
 

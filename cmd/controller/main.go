@@ -17,6 +17,7 @@ import (
 func main() {
 	var metricsAddr string
 	var probeAddr string
+	var dashboardAddr string
 	var enableLeaderElection bool
 	var demoReplayInput string
 	var showVersion bool
@@ -28,6 +29,7 @@ func main() {
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&dashboardAddr, "dashboard-bind-address", ":8082", "The address the read-only workload qualification dashboard binds to; set to 0 to disable.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.BoolVar(&showVersion, "version", false, "print the controller version")
 	flag.BoolVar(&discoveryEnabled, "cluster-discovery", true, "publish cluster-wide discovery inventory for HPA-managed Deployments")
@@ -95,6 +97,7 @@ func main() {
 		controller.Options{
 			MetricsBindAddress:          metricsAddr,
 			HealthProbeBindAddress:      probeAddr,
+			DashboardBindAddress:        dashboardAddr,
 			LeaderElection:              enableLeaderElection,
 			MetricsProvider:             metricsProvider,
 			DependencyEvaluator:         dependencyEvaluator,

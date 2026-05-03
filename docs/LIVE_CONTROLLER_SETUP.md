@@ -7,7 +7,7 @@ Prometheus and Kubernetes state rather than demo fixtures.
 
 The live controller:
 
-- scans all namespaces for the narrow v1 discovery surface: Deployments and HPAs
+- scans all namespaces for common workload controllers and HPAs
 - watches `PredictiveScalingPolicy` objects
 - resolves the target `Deployment`
 - detects a matching HPA when one exists
@@ -15,6 +15,7 @@ The live controller:
 - reads request-based node-headroom inputs from the cluster API
 - writes a cluster-wide discovery inventory ConfigMap
 - writes recommendation, suppression, and telemetry-readiness status back to the CRD
+- serves a read-only workload qualification dashboard from the same evidence
 
 It does not patch workload replicas in v1.
 
@@ -32,8 +33,16 @@ kubectl apply -k ./config/default
 
 The deployment in
 [`config/manager/deployment.yaml`](../config/manager/deployment.yaml)
-starts the controller with probes and leader election, but no Prometheus query
-configuration.
+starts the controller with probes, leader election, and the read-only dashboard,
+but no Prometheus query configuration.
+
+Open the dashboard locally:
+
+```bash
+kubectl port-forward -n skale-system svc/skale-dashboard 8082:8082
+```
+
+Then visit `http://localhost:8082`.
 
 If you want a pinned release instead of the rolling `main` image, update
 [`config/manager/deployment.yaml`](../config/manager/deployment.yaml)
@@ -46,6 +55,32 @@ For local development, you can still build and load an unpublished image:
 make docker-build IMAGE=ghcr.io/oswalpalash/skale-controller:dev VERSION=dev
 kind load docker-image ghcr.io/oswalpalash/skale-controller:dev --name skale
 ```
+
+## Local Kind Observability
+
+For repeatable local dashboard testing, use the repo-owned setup script:
+
+```bash
+kubectl apply -f demo/manifests/checkout-api-live-demo.yaml
+hack/setup-local-observability.sh
+hack/start-local-demo-traffic.sh
+kubectl port-forward -n skale-system svc/skale-dashboard 8082:8082
+```
+
+The script applies
+[`demo/manifests/local-observability.yaml`](../demo/manifests/local-observability.yaml),
+waits for Prometheus and kube-state-metrics, annotates the controller for
+Prometheus scraping, and patches local demo PromQL into the controller
+deployment.
+
+This is a development convenience, not a production install path. It assumes the
+demo app exposes `skale_demo_requests_total` and that the controller is running
+in `skale-system`.
+
+`hack/start-local-demo-traffic.sh` uses deterministic jitter by default. Tune
+`JITTER_SEED`, `WORKER_SCHEDULE`, `MAX_EXTRA_WORKERS`, `PHASE_SECONDS`, and
+`REQUEST_PERIOD_SECONDS` to generate repeatable traffic shapes while still
+giving the model imperfect demand patterns to evaluate.
 
 ## Required Live Telemetry
 
@@ -71,10 +106,10 @@ as required for a `ready` workload.
 
 ## Discovery Inventory
 
-Cluster discovery is enabled by default and intentionally limited to the v1
-wedge. It lists Deployments and HPAs across all namespaces, but it does not
-evaluate Jobs, DaemonSets, StatefulSets, KEDA ScaledObjects, or arbitrary
-resources.
+Cluster discovery is enabled by default. It lists common workload controllers
+across all namespaces, but recommendation eligibility remains limited to
+workloads with an explicit scaling contract. Unsupported workload kinds are
+visible so operators can see why Skale is withholding replica recommendations.
 
 Inspect the latest inventory:
 
@@ -92,8 +127,11 @@ The inventory uses four classifications:
   recurrence evidence to justify replay
 - `needs configuration`: likely relevant, but missing telemetry query mapping,
   warmup, target utilization, or safety context
+- `needs scaling contract`: visible Deployment without an HPA or explicit Skale
+  policy contract; Skale withholds replica recommendations until the scaling
+  envelope and safety context are explicit
 - `low confidence`: telemetry exists, but replay or forecast evidence is weak
-- `unsupported`: outside the v1 wedge, no matching HPA, missing required
+- `unsupported`: outside the current supported target types, missing required
   signals, or poor label quality
 
 `policy-drafts.yaml` in the same ConfigMap contains conservative
@@ -120,6 +158,7 @@ The controller exposes the following live-telemetry flags:
 - `--discovery-namespace`
 - `--discovery-configmap`
 - `--discovery-interval`
+- `--dashboard-bind-address`
 
 Each query must already aggregate down to one normalized series for the target
 workload. If a query returns multiple series, the controller treats that as a
@@ -189,6 +228,10 @@ Healthy live-controller setup should produce status fields under:
 
 If telemetry is incomplete, the correct output is an explicit `unsupported` or
 `degraded` state, not a forced recommendation.
+
+The dashboard intentionally lists all discovered workloads, including workloads
+that do not have a known scaling contract. Those workloads are shown as
+`needs scaling contract` rather than receiving guessed replica counts.
 
 Discovery status is stored separately from policy status in the
 `skale-discovery-inventory` ConfigMap. This separation is intentional:

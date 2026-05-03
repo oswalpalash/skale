@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	batchv1 "k8s.io/api/batch/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	skalev1alpha1 "github.com/oswalpalash/skale/api/v1alpha1"
@@ -31,14 +32,16 @@ const (
 type Status string
 
 const (
-	StatusCandidate          Status = "candidate"
-	StatusUnsupported        Status = "unsupported"
-	StatusNeedsConfiguration Status = "needs configuration"
-	StatusLowConfidence      Status = "low confidence"
+	StatusCandidate            Status = "candidate"
+	StatusUnsupported          Status = "unsupported"
+	StatusNeedsConfiguration   Status = "needs configuration"
+	StatusNeedsScalingContract Status = "needs scaling contract"
+	StatusLowConfidence        Status = "low confidence"
 )
 
 const (
 	ReasonNoHPA                    = "no_hpa"
+	ReasonScalingContractMissing   = "scaling_contract_missing"
 	ReasonOutsideV1Wedge           = "outside_v1_wedge"
 	ReasonTelemetryProviderMissing = "telemetry_provider_missing"
 	ReasonTelemetryLoadFailed      = "telemetry_load_failed"
@@ -77,12 +80,13 @@ type Scope struct {
 
 // Summary counts workload classifications in the inventory.
 type Summary struct {
-	Total              int `json:"total"`
-	Candidates         int `json:"candidates"`
-	Unsupported        int `json:"unsupported"`
-	NeedsConfiguration int `json:"needsConfiguration"`
-	LowConfidence      int `json:"lowConfidence"`
-	PolicyBacked       int `json:"policyBacked"`
+	Total                int `json:"total"`
+	Candidates           int `json:"candidates"`
+	Unsupported          int `json:"unsupported"`
+	NeedsConfiguration   int `json:"needsConfiguration"`
+	NeedsScalingContract int `json:"needsScalingContract"`
+	LowConfidence        int `json:"lowConfidence"`
+	PolicyBacked         int `json:"policyBacked"`
 }
 
 // Finding is one workload's discovery result.
@@ -160,7 +164,7 @@ type Reason struct {
 	Message string `json:"message"`
 }
 
-// Scanner evaluates the narrow v1 discovery wedge: Deployments and HPAs, not arbitrary resources.
+// Scanner inventories common workload controllers and evaluates recommendation eligibility for the narrow scaling-contract wedge.
 type Scanner struct {
 	Reader                       client.Reader
 	MetricsProvider              metrics.Provider
@@ -203,13 +207,32 @@ func (s Scanner) Scan(ctx context.Context) (Inventory, error) {
 	if err := s.Reader.List(ctx, &policies); err != nil {
 		return Inventory{}, fmt.Errorf("list predictive scaling policies for discovery: %w", err)
 	}
+	var statefulSets appsv1.StatefulSetList
+	if err := s.Reader.List(ctx, &statefulSets); err != nil {
+		return Inventory{}, fmt.Errorf("list statefulsets for discovery: %w", err)
+	}
+	var daemonSets appsv1.DaemonSetList
+	if err := s.Reader.List(ctx, &daemonSets); err != nil {
+		return Inventory{}, fmt.Errorf("list daemonsets for discovery: %w", err)
+	}
+	var jobs batchv1.JobList
+	if err := s.Reader.List(ctx, &jobs); err != nil {
+		return Inventory{}, fmt.Errorf("list jobs for discovery: %w", err)
+	}
+	var cronJobs batchv1.CronJobList
+	if err := s.Reader.List(ctx, &cronJobs); err != nil {
+		return Inventory{}, fmt.Errorf("list cronjobs for discovery: %w", err)
+	}
 
 	hpasByDeployment, unsupportedHPAs := indexHPAs(hpas.Items)
 	policiesByDeployment := indexPolicies(policies.Items)
 
-	findings := make([]Finding, 0, len(deployments.Items)+len(unsupportedHPAs))
+	findings := make([]Finding, 0, len(deployments.Items)+len(unsupportedHPAs)+len(statefulSets.Items)+len(daemonSets.Items)+len(jobs.Items)+len(cronJobs.Items))
+	seen := map[string]struct{}{}
 	for _, hpa := range unsupportedHPAs {
-		findings = append(findings, unsupportedHPATargetFinding(hpa))
+		finding := unsupportedHPATargetFinding(hpa)
+		findings = append(findings, finding)
+		seen[workloadSeenKey(finding.Workload)] = struct{}{}
 	}
 
 	for _, deployment := range deployments.Items {
@@ -218,7 +241,9 @@ func (s Scanner) Scan(ctx context.Context) (Inventory, error) {
 		existingPolicy := policiesByDeployment[key]
 		if len(matchingHPAs) == 0 {
 			if s.IncludeDeploymentsWithoutHPA {
-				findings = append(findings, deploymentWithoutHPAFinding(deployment, existingPolicy))
+				finding := deploymentWithoutHPAFinding(deployment, existingPolicy)
+				findings = append(findings, finding)
+				seen[workloadSeenKey(finding.Workload)] = struct{}{}
 			}
 			continue
 		}
@@ -226,7 +251,42 @@ func (s Scanner) Scan(ctx context.Context) (Inventory, error) {
 		sort.Slice(matchingHPAs, func(i, j int) bool {
 			return matchingHPAs[i].Name < matchingHPAs[j].Name
 		})
-		findings = append(findings, s.evaluateHPADeployment(ctx, deployment, matchingHPAs[0], existingPolicy, window, now))
+		finding := s.evaluateHPADeployment(ctx, deployment, matchingHPAs[0], existingPolicy, window, now)
+		findings = append(findings, finding)
+		seen[workloadSeenKey(finding.Workload)] = struct{}{}
+	}
+
+	for _, statefulSet := range statefulSets.Items {
+		ref := WorkloadRef{APIVersion: "apps/v1", Kind: "StatefulSet", Namespace: statefulSet.Namespace, Name: statefulSet.Name}
+		if _, ok := seen[workloadSeenKey(ref)]; ok {
+			continue
+		}
+		findings = append(findings, unsupportedWorkloadFinding(ref, "StatefulSets are visible in the dashboard, but Skale does not produce predictive replica recommendations for StatefulSets in this release."))
+		seen[workloadSeenKey(ref)] = struct{}{}
+	}
+	for _, daemonSet := range daemonSets.Items {
+		ref := WorkloadRef{APIVersion: "apps/v1", Kind: "DaemonSet", Namespace: daemonSet.Namespace, Name: daemonSet.Name}
+		if _, ok := seen[workloadSeenKey(ref)]; ok {
+			continue
+		}
+		findings = append(findings, unsupportedWorkloadFinding(ref, "DaemonSet replica count is node-driven, so Skale does not produce pod replica recommendations for this workload."))
+		seen[workloadSeenKey(ref)] = struct{}{}
+	}
+	for _, job := range jobs.Items {
+		ref := WorkloadRef{APIVersion: "batch/v1", Kind: "Job", Namespace: job.Namespace, Name: job.Name}
+		if _, ok := seen[workloadSeenKey(ref)]; ok {
+			continue
+		}
+		findings = append(findings, unsupportedWorkloadFinding(ref, "Jobs are finite-run workloads; Skale does not produce predictive Deployment-style replica recommendations for them."))
+		seen[workloadSeenKey(ref)] = struct{}{}
+	}
+	for _, cronJob := range cronJobs.Items {
+		ref := WorkloadRef{APIVersion: "batch/v1", Kind: "CronJob", Namespace: cronJob.Namespace, Name: cronJob.Name}
+		if _, ok := seen[workloadSeenKey(ref)]; ok {
+			continue
+		}
+		findings = append(findings, unsupportedWorkloadFinding(ref, "CronJobs already have scheduled execution semantics; Skale does not produce predictive Deployment-style replica recommendations for them."))
+		seen[workloadSeenKey(ref)] = struct{}{}
 	}
 
 	sort.Slice(findings, func(i, j int) bool {
@@ -247,9 +307,9 @@ func (s Scanner) Scan(ctx context.Context) (Inventory, error) {
 			End:   window.End,
 		},
 		Scope: Scope{
-			WorkloadKinds: []string{"apps/v1.Deployment", "autoscaling/v2.HorizontalPodAutoscaler"},
+			WorkloadKinds: []string{"apps/v1.Deployment", "apps/v1.StatefulSet", "apps/v1.DaemonSet", "batch/v1.Job", "batch/v1.CronJob", "autoscaling/v2.HorizontalPodAutoscaler"},
 			Namespaces:    "all",
-			Message:       "Discovery is intentionally limited to Deployments and HPAs for the v1 burst-readiness wedge. It does not evaluate Jobs, DaemonSets, StatefulSets, KEDA ScaledObjects, or arbitrary Kubernetes resources.",
+			Message:       "Discovery inventory is broad enough to show common Kubernetes workload controllers, while replica recommendation eligibility remains limited to workloads with an explicit scaling contract.",
 		},
 		Findings: findings,
 	}
@@ -520,14 +580,15 @@ func unsupportedHPATargetFinding(hpa autoscalingv2.HorizontalPodAutoscaler) Find
 
 func deploymentWithoutHPAFinding(deployment appsv1.Deployment, existingPolicy *PolicyRef) Finding {
 	finding := Finding{
-		Status:         StatusUnsupported,
+		Status:         StatusNeedsScalingContract,
 		Workload:       deploymentRef(deployment),
 		ExistingPolicy: existingPolicy,
 		Reasons: []Reason{{
-			Code:    ReasonNoHPA,
-			Message: "Deployment is not targeted by an HPA; v1 discovery only promotes HPA-managed Deployments.",
+			Code:    ReasonScalingContractMissing,
+			Message: "Deployment is not targeted by an HPA and has no explicit Skale scaling contract; replica recommendations are withheld until min/max replicas, demand signal, warmup, and safety policy are explicit.",
 		}},
 	}
+	finding.MissingPrerequisites = append(finding.MissingPrerequisites, "scaling contract")
 	if existingPolicy != nil {
 		finding.Reasons = append(finding.Reasons, Reason{
 			Code:    ReasonPolicyAlreadyExists,
@@ -535,6 +596,17 @@ func deploymentWithoutHPAFinding(deployment appsv1.Deployment, existingPolicy *P
 		})
 	}
 	return finding
+}
+
+func unsupportedWorkloadFinding(ref WorkloadRef, message string) Finding {
+	return Finding{
+		Status:   StatusUnsupported,
+		Workload: ref,
+		Reasons: []Reason{{
+			Code:    ReasonOutsideV1Wedge,
+			Message: message,
+		}},
+	}
 }
 
 func summarizeHPA(hpa autoscalingv2.HorizontalPodAutoscaler) HPASummary {
@@ -691,6 +763,8 @@ func summarize(findings []Finding) Summary {
 			summary.Unsupported++
 		case StatusNeedsConfiguration:
 			summary.NeedsConfiguration++
+		case StatusNeedsScalingContract:
+			summary.NeedsScalingContract++
 		case StatusLowConfidence:
 			summary.LowConfidence++
 		}
@@ -707,15 +781,21 @@ func rankStatus(status Status) int {
 		return 0
 	case StatusNeedsConfiguration:
 		return 1
-	case StatusLowConfidence:
+	case StatusNeedsScalingContract:
 		return 2
-	default:
+	case StatusLowConfidence:
 		return 3
+	default:
+		return 4
 	}
 }
 
 func namespacedName(namespace, name string) string {
 	return namespace + "/" + name
+}
+
+func workloadSeenKey(ref WorkloadRef) string {
+	return ref.APIVersion + "/" + ref.Kind + "/" + ref.Namespace + "/" + ref.Name
 }
 
 func ptrHPASummary(summary HPASummary) *HPASummary {

@@ -134,11 +134,12 @@ func (r *ClusterDiscoveryRunner) publish(ctx context.Context, inventory discover
 
 func discoverySummary(inventory discovery.Inventory) string {
 	return fmt.Sprintf(
-		"Skale discovery inventory generated at %s across %s namespaces.\n\ncandidate: %d\nneeds configuration: %d\nlow confidence: %d\nunsupported: %d\npolicy-backed: %d\n\n%s\n",
+		"Skale discovery inventory generated at %s across %s namespaces.\n\ncandidate: %d\nneeds configuration: %d\nneeds scaling contract: %d\nlow confidence: %d\nunsupported: %d\npolicy-backed: %d\n\n%s\n",
 		inventory.GeneratedAt.UTC().Format(time.RFC3339),
 		inventory.Scope.Namespaces,
 		inventory.Summary.Candidates,
 		inventory.Summary.NeedsConfiguration,
+		inventory.Summary.NeedsScalingContract,
 		inventory.Summary.LowConfidence,
 		inventory.Summary.Unsupported,
 		inventory.Summary.PolicyBacked,

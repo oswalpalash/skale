@@ -4,3 +4,4 @@ resources:
   - namespace.yaml
   - service_account.yaml
   - deployment.yaml
+  - dashboard_service.yaml
