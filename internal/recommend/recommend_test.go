@@ -43,6 +43,38 @@ func TestDeterministicEngineRecommendScaleUp(t *testing.T) {
 	}
 }
 
+func TestDeterministicEngineUsesStableCapacityEstimate(t *testing.T) {
+	t.Parallel()
+
+	engine := DeterministicEngine{}
+	input := validInput()
+	input.CurrentDemand = 80
+	input.CurrentReplicas = 4
+	input.ForecastedDemand = 320
+	input.CapacityEstimate = &CapacityEstimate{
+		Estimated:          true,
+		PerReplicaCapacity: 100,
+		WindowStart:        input.EvaluationTime.Add(-15 * time.Minute),
+		WindowEnd:          input.EvaluationTime,
+		SampleCount:        8,
+	}
+
+	result, err := engine.Recommend(input)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if result.RawRequiredReplicas != 4 {
+		t.Fatalf("expected raw required replicas 4 from stable capacity, got %d", result.RawRequiredReplicas)
+	}
+	if result.Explanation.Signals.CapacitySampleCount != 8 {
+		t.Fatalf("capacity samples = %d, want 8", result.Explanation.Signals.CapacitySampleCount)
+	}
+	if !result.Explanation.Signals.CapacityWindowStart.Equal(input.CapacityEstimate.WindowStart) {
+		t.Fatalf("capacity window start = %s, want %s", result.Explanation.Signals.CapacityWindowStart, input.CapacityEstimate.WindowStart)
+	}
+}
+
 func TestDeterministicEngineAppliesStepUpBound(t *testing.T) {
 	t.Parallel()
 

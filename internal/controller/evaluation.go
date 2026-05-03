@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,9 +16,11 @@ import (
 )
 
 const (
-	defaultControllerLookback = 30 * time.Minute
-	defaultControllerStep     = 30 * time.Second
-	defaultTargetUtilization  = 0.8
+	defaultControllerLookback        = 30 * time.Minute
+	defaultControllerStep            = 30 * time.Second
+	defaultCapacityLookback          = 15 * time.Minute
+	defaultMinimumCapacitySamples    = 3
+	defaultSeasonalityMinCorrelation = 0.75
 )
 
 type evaluationStage string
@@ -156,12 +159,16 @@ func (p EvaluationPipeline) Evaluate(
 		}
 	}
 
+	demandPoints := signalSeriesToForecastPoints(snapshot.Demand)
+	seasonality := controllerForecastSeasonality(policy.Spec, p.ForecastSeasonalityOverride, demandPoints)
 	forecastInput := forecast.Input{
-		Series:      signalSeriesToForecastPoints(snapshot.Demand),
-		EvaluatedAt: evaluatedAt,
-		Horizon:     policy.Spec.ForecastHorizon.Duration,
-		Step:        0,
-		Seasonality: controllerForecastSeasonality(policy.Spec, p.ForecastSeasonalityOverride),
+		Series:                demandPoints,
+		EvaluatedAt:           evaluatedAt,
+		Horizon:               policy.Spec.ForecastHorizon.Duration,
+		Step:                  0,
+		Seasonality:           seasonality.Period,
+		SeasonalitySource:     seasonality.Source,
+		SeasonalityConfidence: seasonality.Confidence,
 	}
 	forecastResult, err := forecastModel.Forecast(ctx, forecastInput)
 	if err != nil {
@@ -182,6 +189,7 @@ func (p EvaluationPipeline) Evaluate(
 	forecastSummary := explain.ForecastSummaryFromResult(forecastResult, selectedPoint, evaluatedAt)
 	result.ForecastSummary = &forecastSummary
 
+	capacityEstimate := controllerCapacityEstimate(snapshot, evaluatedAt, policy.Spec.TargetUtilization)
 	recommendation, err := recommendEngine.Recommend(recommend.Input{
 		Workload:            target.Identity.Resource,
 		WorkloadRef:         target.Identity,
@@ -192,9 +200,10 @@ func (p EvaluationPipeline) Evaluate(
 		ForecastSummary:     &forecastSummary,
 		CurrentDemand:       result.CurrentDemand,
 		CurrentReplicas:     result.CurrentReplicas,
-		TargetUtilization:   defaultTargetUtilization,
+		TargetUtilization:   policy.Spec.TargetUtilization,
 		EstimatedWarmup:     policy.Spec.Warmup.EstimatedReadyDuration.Duration,
 		TelemetrySummary:    &result.TelemetrySummary,
+		CapacityEstimate:    capacityEstimate,
 		ConfidenceScore:     forecastResult.Confidence,
 		ConfidenceThreshold: policy.Spec.ConfidenceThreshold,
 		MinReplicas:         policy.Spec.MinReplicas,
@@ -241,16 +250,136 @@ func controllerReadinessOptions(spec skalev1alpha1.PredictiveScalingPolicySpec, 
 	return options
 }
 
-func controllerForecastSeasonality(spec skalev1alpha1.PredictiveScalingPolicySpec, override time.Duration) time.Duration {
+type resolvedSeasonality struct {
+	Period     time.Duration
+	Source     forecast.SeasonalitySource
+	Confidence float64
+}
+
+func controllerForecastSeasonality(spec skalev1alpha1.PredictiveScalingPolicySpec, override time.Duration, series []forecast.Point) resolvedSeasonality {
 	if override > 0 {
-		return override
+		return resolvedSeasonality{Period: override, Source: forecast.SeasonalitySourceConfigured, Confidence: 1}
 	}
-	if spec.ForecastHorizon.Duration <= 0 {
+	if spec.ForecastSeasonality.Duration > 0 {
+		return resolvedSeasonality{Period: spec.ForecastSeasonality.Duration, Source: forecast.SeasonalitySourceConfigured, Confidence: 1}
+	}
+	detection := forecast.DetectSeasonality(series, forecast.SeasonalityDetectionOptions{
+		MinPeriod:      minSeasonalityPeriod(series),
+		MaxPeriod:      maxSeasonalityPeriod(series),
+		MinCycles:      3,
+		MinCorrelation: defaultSeasonalityMinCorrelation,
+	})
+	if detection.Detected {
+		return resolvedSeasonality{Period: detection.Period, Source: forecast.SeasonalitySourceDetected, Confidence: detection.Confidence}
+	}
+	return resolvedSeasonality{Source: forecast.SeasonalitySourceNone}
+}
+
+func minSeasonalityPeriod(series []forecast.Point) time.Duration {
+	step := inferForecastStep(series)
+	if step <= 0 {
 		return 0
 	}
-	// v1 keeps the live controller simple: it reuses one forecast-horizon-length season
-	// instead of pretending to infer richer periodicity from CRD configuration that does not exist yet.
-	return spec.ForecastHorizon.Duration
+	return 2 * step
+}
+
+func maxSeasonalityPeriod(series []forecast.Point) time.Duration {
+	step := inferForecastStep(series)
+	if step <= 0 || len(series) < 6 {
+		return 0
+	}
+	return time.Duration(len(series)/3) * step
+}
+
+func inferForecastStep(series []forecast.Point) time.Duration {
+	if len(series) < 2 {
+		return 0
+	}
+	deltas := make([]int64, 0, len(series)-1)
+	for index := 1; index < len(series); index++ {
+		delta := series[index].Timestamp.Sub(series[index-1].Timestamp)
+		if delta <= 0 {
+			return 0
+		}
+		deltas = append(deltas, int64(delta))
+	}
+	sort.Slice(deltas, func(i, j int) bool {
+		return deltas[i] < deltas[j]
+	})
+	return time.Duration(deltas[len(deltas)/2])
+}
+
+func controllerCapacityEstimate(snapshot metrics.Snapshot, evaluatedAt time.Time, targetUtilization float64) *recommend.CapacityEstimate {
+	return capacityEstimateFromSeries(snapshot.Demand, snapshot.Replicas, evaluatedAt, defaultCapacityLookback, defaultMinimumCapacitySamples, targetUtilization)
+}
+
+func capacityEstimateFromSeries(demandSeries metrics.SignalSeries, replicaSeries metrics.SignalSeries, evaluatedAt time.Time, lookback time.Duration, minimumSamples int, targetUtilization float64) *recommend.CapacityEstimate {
+	if lookback <= 0 {
+		lookback = defaultCapacityLookback
+	}
+	if minimumSamples < 1 {
+		minimumSamples = defaultMinimumCapacitySamples
+	}
+	estimate := &recommend.CapacityEstimate{
+		WindowStart: evaluatedAt.Add(-lookback).UTC(),
+		WindowEnd:   evaluatedAt.UTC(),
+	}
+	if targetUtilization <= 0 || targetUtilization > 1 {
+		return estimate
+	}
+
+	capacities := make([]float64, 0, minimumSamples)
+	for _, demandSample := range demandSeries.Samples {
+		if demandSample.Timestamp.Before(estimate.WindowStart) || demandSample.Timestamp.After(estimate.WindowEnd) {
+			continue
+		}
+		replicas, ok := valueAtOrBefore(replicaSeries.Samples, demandSample.Timestamp)
+		if !ok || replicas < 1 || demandSample.Value <= 0 {
+			continue
+		}
+		capacities = append(capacities, demandSample.Value/(replicas*targetUtilization))
+	}
+	estimate.SampleCount = len(capacities)
+	if len(capacities) < minimumSamples {
+		return estimate
+	}
+	capacity := medianFloat(capacities)
+	if capacity <= 0 {
+		return estimate
+	}
+	estimate.Estimated = true
+	estimate.PerReplicaCapacity = capacity
+	return estimate
+}
+
+func valueAtOrBefore(samples []metrics.Sample, at time.Time) (float64, bool) {
+	if len(samples) == 0 {
+		return 0, false
+	}
+	index := sort.Search(len(samples), func(i int) bool {
+		return !samples[i].Timestamp.Before(at)
+	})
+	switch {
+	case index < len(samples) && samples[index].Timestamp.Equal(at):
+		return samples[index].Value, true
+	case index == 0:
+		return 0, false
+	default:
+		return samples[index-1].Value, true
+	}
+}
+
+func medianFloat(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := append([]float64(nil), values...)
+	sort.Float64s(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid]
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2
 }
 
 func signalSeriesToForecastPoints(series metrics.SignalSeries) []forecast.Point {

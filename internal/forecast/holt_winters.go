@@ -62,23 +62,36 @@ func (m HoltWintersModel) Forecast(_ context.Context, input Input) (Result, erro
 	reliability := deriveReliability(confidence, validation)
 
 	result := Result{
-		Model:       HoltWintersModelName,
-		GeneratedAt: prepared.generatedAt,
-		Horizon:     prepared.horizon,
-		Step:        prepared.step,
-		Seasonality: prepared.seasonality,
-		Points:      buildForecastPoints(prepared.generatedAt, prepared.step, forecastValues),
-		Confidence:  confidence,
-		Reliability: reliability,
-		Validation:  validation,
+		Model:                 HoltWintersModelName,
+		GeneratedAt:           prepared.generatedAt,
+		Horizon:               prepared.horizon,
+		Step:                  prepared.step,
+		Seasonality:           prepared.seasonality,
+		SeasonalitySource:     prepared.seasonalitySource,
+		SeasonalityConfidence: prepared.seasonalityConfidence,
+		Points:                buildForecastPoints(prepared.generatedAt, prepared.step, forecastValues),
+		Confidence:            confidence,
+		Reliability:           reliability,
+		Validation:            validation,
 	}
 
 	if prepared.seasonPoints == 1 {
+		code := AdvisoryNonSeasonalMode
+		message := "seasonality was not provided; Holt-Winters ran in non-seasonal trend mode"
+		if prepared.seasonalitySource == SeasonalitySourceNone {
+			code = AdvisoryNoSeasonality
+			message = "no seasonality detected with enough evidence; Holt-Winters ran in non-seasonal trend mode"
+		}
 		result.Advisories = append(result.Advisories, advisory(
-			AdvisoryNonSeasonalMode,
-			"seasonality was not provided; Holt-Winters ran in non-seasonal trend mode",
+			code,
+			message,
 		))
 		result.Reliability = degradeReliability(result.Reliability, ReliabilityMedium)
+	} else if prepared.seasonalitySource == SeasonalitySourceDetected {
+		result.Advisories = append(result.Advisories, advisory(
+			AdvisorySeasonalityDetected,
+			fmt.Sprintf("seasonality detected at %s with confidence %.2f", prepared.seasonality, prepared.seasonalityConfidence),
+		))
 	}
 	if len(prepared.series) < prepared.seasonPoints*3 {
 		result.Advisories = append(result.Advisories, advisory(

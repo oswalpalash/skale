@@ -3,6 +3,7 @@ package replay
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -59,8 +60,8 @@ func TestEngineRunCapturesSuppressionReasonsDuringBlackout(t *testing.T) {
 	spec := syntheticSpec()
 	spec.Policy.BlackoutWindows = []safety.BlackoutWindow{{
 		Name:   "deploy-freeze",
-		Start:  spec.Window.Start.Add(3 * time.Minute),
-		End:    spec.Window.Start.Add(4 * time.Minute),
+		Start:  spec.Window.Start,
+		End:    spec.Window.End,
 		Reason: "planned rollout",
 	}}
 
@@ -234,6 +235,36 @@ func TestEngineRunFailsClosedWhenProxyScoringIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestEngineRunSummarizesForecastUnderPrediction(t *testing.T) {
+	t.Parallel()
+
+	engine := Engine{
+		Metrics: staticProvider{snapshot: syntheticSnapshot()},
+		Forecast: qualityForecastModel{validation: forecast.Validation{
+			HoldoutPoints:            4,
+			UnderPredictedPoints:     2,
+			UnderPredictionRate:      0.5,
+			MedianUnderPredictionPct: 15,
+			UnderPredictionRatios:    []float64{0.10, 0.20},
+		}},
+	}
+
+	result, err := engine.Run(context.Background(), syntheticSpec())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if result.Replay.ForecastQuality.HoldoutPoints == 0 {
+		t.Fatal("expected forecast quality summary")
+	}
+	if result.Replay.ForecastQuality.UnderPredictionRate != 0.5 {
+		t.Fatalf("under-prediction rate = %.2f, want 0.50", result.Replay.ForecastQuality.UnderPredictionRate)
+	}
+	if math.Abs(result.Replay.ForecastQuality.MedianUnderPredictionPct-15) > 1e-9 {
+		t.Fatalf("median under-prediction = %.2f, want 15", result.Replay.ForecastQuality.MedianUnderPredictionPct)
+	}
+}
+
 type staticProvider struct {
 	snapshot metrics.Snapshot
 }
@@ -345,6 +376,34 @@ func (failingForecastModel) Name() string {
 
 func (m failingForecastModel) Forecast(context.Context, forecast.Input) (forecast.Result, error) {
 	return forecast.Result{}, m.err
+}
+
+type qualityForecastModel struct {
+	validation forecast.Validation
+}
+
+func (qualityForecastModel) Name() string {
+	return "quality"
+}
+
+func (m qualityForecastModel) Forecast(_ context.Context, input forecast.Input) (forecast.Result, error) {
+	step := input.Step
+	if step <= 0 {
+		step = time.Minute
+	}
+	return forecast.Result{
+		Model:       "quality",
+		GeneratedAt: input.EvaluatedAt,
+		Horizon:     input.Horizon,
+		Step:        step,
+		Points: []forecast.Point{
+			{Timestamp: input.EvaluatedAt.Add(2 * time.Minute), Value: 320},
+			{Timestamp: input.EvaluatedAt.Add(3 * time.Minute), Value: 320},
+		},
+		Confidence:  0.9,
+		Reliability: forecast.ReliabilityHigh,
+		Validation:  m.validation,
+	}, nil
 }
 
 func containsString(values []string, needle string) bool {

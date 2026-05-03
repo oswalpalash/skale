@@ -74,8 +74,10 @@ spec:
     name: checkout-api
   mode: recommendationOnly
   forecastHorizon: 30m
+  forecastSeasonality: 2h
   warmup:
     estimatedReadyDuration: 30m
+  targetUtilization: 0.8
   confidenceThreshold: 0.65
   minReplicas: 2
   maxReplicas: 4

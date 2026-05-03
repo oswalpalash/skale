@@ -43,23 +43,36 @@ func (SeasonalNaiveModel) Forecast(_ context.Context, input Input) (Result, erro
 	reliability := deriveReliability(confidence, validation)
 
 	result := Result{
-		Model:       SeasonalNaiveModelName,
-		GeneratedAt: prepared.generatedAt,
-		Horizon:     prepared.horizon,
-		Step:        prepared.step,
-		Seasonality: prepared.seasonality,
-		Points:      buildForecastPoints(prepared.generatedAt, prepared.step, forecastValues),
-		Confidence:  confidence,
-		Reliability: reliability,
-		Validation:  validation,
+		Model:                 SeasonalNaiveModelName,
+		GeneratedAt:           prepared.generatedAt,
+		Horizon:               prepared.horizon,
+		Step:                  prepared.step,
+		Seasonality:           prepared.seasonality,
+		SeasonalitySource:     prepared.seasonalitySource,
+		SeasonalityConfidence: prepared.seasonalityConfidence,
+		Points:                buildForecastPoints(prepared.generatedAt, prepared.step, forecastValues),
+		Confidence:            confidence,
+		Reliability:           reliability,
+		Validation:            validation,
 	}
 
 	if prepared.seasonPoints == 1 {
+		code := AdvisoryImplicitPersistence
+		message := "seasonality was not provided; seasonal naive fell back to repeating the most recent point"
+		if prepared.seasonalitySource == SeasonalitySourceNone {
+			code = AdvisoryNoSeasonality
+			message = "no seasonality detected with enough evidence; seasonal naive ran in persistence mode"
+		}
 		result.Advisories = append(result.Advisories, advisory(
-			AdvisoryImplicitPersistence,
-			"seasonality was not provided; seasonal naive fell back to repeating the most recent point",
+			code,
+			message,
 		))
 		result.Reliability = degradeReliability(result.Reliability, ReliabilityMedium)
+	} else if prepared.seasonalitySource == SeasonalitySourceDetected {
+		result.Advisories = append(result.Advisories, advisory(
+			AdvisorySeasonalityDetected,
+			fmt.Sprintf("seasonality detected at %s with confidence %.2f", prepared.seasonality, prepared.seasonalityConfidence),
+		))
 	}
 	if len(prepared.series) < prepared.seasonPoints*2 {
 		result.Advisories = append(result.Advisories, advisory(

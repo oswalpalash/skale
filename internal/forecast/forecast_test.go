@@ -188,8 +188,70 @@ func TestSeasonalNaiveFallsBackToPersistenceWithoutSeasonality(t *testing.T) {
 
 	last := series[len(series)-1].Value
 	assertPointValues(t, result.Points, []float64{last, last, last}, 1e-9)
-	if len(result.Advisories) == 0 || result.Advisories[0].Code != AdvisoryImplicitPersistence {
-		t.Fatalf("advisories = %#v, want implicit persistence advisory", result.Advisories)
+	if len(result.Advisories) == 0 || result.Advisories[0].Code != AdvisoryNoSeasonality {
+		t.Fatalf("advisories = %#v, want no seasonality advisory", result.Advisories)
+	}
+	if result.Seasonality != 0 || result.SeasonalitySource != SeasonalitySourceNone {
+		t.Fatalf("seasonality = %s source %q, want none", result.Seasonality, result.SeasonalitySource)
+	}
+}
+
+func TestDetectSeasonalityFindsRecurringPattern(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC)
+	step := time.Minute
+	series := buildSeasonalSeries(start, step, 8, []float64{100, 140, 90, 130})
+
+	detection := DetectSeasonality(series, SeasonalityDetectionOptions{
+		MinPeriod:      2 * time.Minute,
+		MaxPeriod:      10 * time.Minute,
+		MinCycles:      3,
+		MinCorrelation: 0.75,
+	})
+	if !detection.Detected {
+		t.Fatalf("expected detected seasonality, got %#v", detection)
+	}
+	if detection.Period != 4*time.Minute {
+		t.Fatalf("period = %s, want 4m", detection.Period)
+	}
+	if detection.Confidence <= 0 {
+		t.Fatalf("confidence = %.3f, want positive", detection.Confidence)
+	}
+}
+
+func TestDetectSeasonalityRequiresEvidence(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC)
+	series := buildLinearSeries(start, time.Minute, 12, 50, 3)
+
+	detection := DetectSeasonality(series, SeasonalityDetectionOptions{
+		MinPeriod:      2 * time.Minute,
+		MaxPeriod:      6 * time.Minute,
+		MinCycles:      3,
+		MinCorrelation: 0.95,
+	})
+	if detection.Detected {
+		t.Fatalf("expected no detected seasonality, got %#v", detection)
+	}
+}
+
+func TestForecastValidationTracksUnderPrediction(t *testing.T) {
+	t.Parallel()
+
+	validation := evaluateForecast(
+		[]float64{100, 200, 300, 400},
+		[]float64{90, 220, 240, 500},
+	)
+	if validation.UnderPredictedPoints != 2 {
+		t.Fatalf("under-predicted points = %d, want 2", validation.UnderPredictedPoints)
+	}
+	if validation.UnderPredictionRate != 0.5 {
+		t.Fatalf("under-prediction rate = %.2f, want 0.50", validation.UnderPredictionRate)
+	}
+	if math.Abs(validation.MedianUnderPredictionPct-15) > 1e-9 {
+		t.Fatalf("median under-prediction = %.2f, want 15", validation.MedianUnderPredictionPct)
 	}
 }
 

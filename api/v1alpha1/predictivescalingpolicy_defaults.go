@@ -7,6 +7,7 @@ const (
 	defaultWarmupDuration      = 45 * time.Second
 	defaultCooldownWindow      = 5 * time.Minute
 	defaultConfidenceThreshold = 0.7
+	defaultTargetUtilization   = 0.8
 )
 
 // Default applies conservative v1 defaults for recommendation-only operation.
@@ -30,6 +31,9 @@ func (s *PredictiveScalingPolicySpec) Default() {
 	}
 	if s.Warmup.EstimatedReadyDuration.Duration == 0 {
 		s.Warmup.EstimatedReadyDuration.Duration = defaultWarmupDuration
+	}
+	if s.TargetUtilization == 0 {
+		s.TargetUtilization = defaultTargetUtilization
 	}
 	if s.ConfidenceThreshold == 0 {
 		s.ConfidenceThreshold = defaultConfidenceThreshold

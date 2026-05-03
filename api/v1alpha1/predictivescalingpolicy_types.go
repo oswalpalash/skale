@@ -137,7 +137,19 @@ type PredictiveScalingPolicySpec struct {
 	// +kubebuilder:default:="5m"
 	ForecastHorizon metav1.Duration `json:"forecastHorizon,omitempty"`
 
+	// ForecastSeasonality is an optional operator-declared recurring period for forecast models.
+	// When omitted, the controller may use detected seasonality only when evidence is sufficient;
+	// otherwise it must run in non-seasonal advisory mode.
+	// +optional
+	ForecastSeasonality metav1.Duration `json:"forecastSeasonality,omitempty"`
+
 	Warmup WarmupSettings `json:"warmup"`
+
+	// TargetUtilization is the utilization contract used to translate demand forecasts into replica counts.
+	// +kubebuilder:default:=0.8
+	// +kubebuilder:validation:Minimum=0.1
+	// +kubebuilder:validation:Maximum=1
+	TargetUtilization float64 `json:"targetUtilization,omitempty"`
 
 	// +kubebuilder:default:=0.7
 	// +kubebuilder:validation:Minimum=0.1
@@ -203,11 +215,16 @@ type TelemetryReadinessSummary struct {
 
 // ForecastSummary is the latest explainable forecast digest surfaced to operators.
 type ForecastSummary struct {
-	EvaluatedAt *metav1.Time    `json:"evaluatedAt,omitempty"`
-	Method      string          `json:"method,omitempty"`
-	Horizon     metav1.Duration `json:"horizon,omitempty"`
-	Confidence  float64         `json:"confidence,omitempty"`
-	Message     string          `json:"message,omitempty"`
+	EvaluatedAt              *metav1.Time    `json:"evaluatedAt,omitempty"`
+	Method                   string          `json:"method,omitempty"`
+	Horizon                  metav1.Duration `json:"horizon,omitempty"`
+	Seasonality              metav1.Duration `json:"seasonality,omitempty"`
+	SeasonalitySource        string          `json:"seasonalitySource,omitempty"`
+	SeasonalityConfidence    float64         `json:"seasonalityConfidence,omitempty"`
+	Confidence               float64         `json:"confidence,omitempty"`
+	UnderPredictionRate      float64         `json:"underPredictionRate,omitempty"`
+	MedianUnderPredictionPct float64         `json:"medianUnderPredictionPct,omitempty"`
+	Message                  string          `json:"message,omitempty"`
 }
 
 // RecommendationSummary is the latest surfaced recommendation decision.

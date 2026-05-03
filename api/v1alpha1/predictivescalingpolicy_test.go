@@ -44,6 +44,9 @@ func TestPredictiveScalingPolicyDefaultSetsConservativeDefaults(t *testing.T) {
 	if policy.Spec.Warmup.EstimatedReadyDuration.Duration != defaultWarmupDuration {
 		t.Fatalf("expected warmup duration %s, got %s", defaultWarmupDuration, policy.Spec.Warmup.EstimatedReadyDuration.Duration)
 	}
+	if policy.Spec.TargetUtilization != defaultTargetUtilization {
+		t.Fatalf("expected target utilization %v, got %v", defaultTargetUtilization, policy.Spec.TargetUtilization)
+	}
 	if policy.Spec.CooldownWindow.Duration != defaultCooldownWindow {
 		t.Fatalf("expected cooldown window %s, got %s", defaultCooldownWindow, policy.Spec.CooldownWindow.Duration)
 	}
@@ -78,7 +81,9 @@ func TestPredictiveScalingPolicyValidateRejectsInvalidBoundsAndTarget(t *testing
 	policy.Spec.MinReplicas = 10
 	policy.Spec.MaxReplicas = 2
 	policy.Spec.ForecastHorizon.Duration = 45 * time.Minute
+	policy.Spec.ForecastSeasonality.Duration = -1 * time.Minute
 	policy.Spec.Warmup.EstimatedReadyDuration.Duration = 0
+	policy.Spec.TargetUtilization = 1.2
 	policy.Spec.ConfidenceThreshold = 1.2
 	policy.Spec.ScaleUp = &ScaleStepPolicy{MaxReplicasChange: 0}
 	policy.Spec.CooldownWindow.Duration = -1 * time.Minute
@@ -92,7 +97,9 @@ func TestPredictiveScalingPolicyValidateRejectsInvalidBoundsAndTarget(t *testing
 		"spec.targetRef.apiVersion":          false,
 		"spec.targetRef.kind":                false,
 		"spec.forecastHorizon":               false,
+		"spec.forecastSeasonality":           false,
 		"spec.warmup.estimatedReadyDuration": false,
+		"spec.targetUtilization":             false,
 		"spec.confidenceThreshold":           false,
 		"spec.minReplicas":                   false,
 		"spec.scaleUp.maxReplicasChange":     false,
@@ -175,7 +182,9 @@ func validPolicy() *PredictiveScalingPolicy {
 			},
 			Mode:                PredictiveScalingModeRecommendationOnly,
 			ForecastHorizon:     metav1.Duration{Duration: 5 * time.Minute},
+			ForecastSeasonality: metav1.Duration{Duration: 24 * time.Hour},
 			Warmup:              WarmupSettings{EstimatedReadyDuration: metav1.Duration{Duration: 45 * time.Second}},
+			TargetUtilization:   0.75,
 			ConfidenceThreshold: 0.7,
 			MinReplicas:         2,
 			MaxReplicas:         10,

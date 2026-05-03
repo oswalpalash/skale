@@ -29,6 +29,7 @@ func TestPredictiveScalingPolicyReconcilerWritesAvailableRecommendation(t *testi
 	scheme := testScheme(t)
 	policy := testPolicy()
 	policy.Spec.ConfidenceThreshold = 0.4
+	policy.Spec.ForecastSeasonality = metav1.Duration{Duration: 5 * time.Minute}
 	policy.Spec.NodeHeadroomSanity = skalev1alpha1.NodeHeadroomSanityDisabled
 
 	deployment := testDeployment()
@@ -109,6 +110,7 @@ func TestPredictiveScalingPolicyReconcilerSuppressesWhenNodeHeadroomRequired(t *
 	scheme := testScheme(t)
 	policy := testPolicy()
 	policy.Spec.ConfidenceThreshold = 0.4
+	policy.Spec.ForecastSeasonality = metav1.Duration{Duration: 5 * time.Minute}
 
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -236,6 +238,7 @@ func TestPredictiveScalingPolicyReconcilerIgnoresStalePreviousRecommendationGene
 	policy := testPolicy()
 	policy.Generation = 2
 	policy.Spec.ConfidenceThreshold = 0.4
+	policy.Spec.ForecastSeasonality = metav1.Duration{Duration: 5 * time.Minute}
 	policy.Spec.NodeHeadroomSanity = skalev1alpha1.NodeHeadroomSanityDisabled
 	lastEvaluated := metav1.NewTime(now.Add(-time.Minute))
 	policy.Status.LastRecommendation = &skalev1alpha1.RecommendationSummary{
@@ -420,6 +423,7 @@ func testPolicy() *skalev1alpha1.PredictiveScalingPolicy {
 			},
 			Mode:                skalev1alpha1.PredictiveScalingModeRecommendationOnly,
 			ForecastHorizon:     metav1.Duration{Duration: 5 * time.Minute},
+			TargetUtilization:   0.8,
 			Warmup:              skalev1alpha1.WarmupSettings{EstimatedReadyDuration: metav1.Duration{Duration: 45 * time.Second}},
 			ConfidenceThreshold: 0.7,
 			MinReplicas:         2,

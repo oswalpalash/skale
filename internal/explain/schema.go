@@ -72,26 +72,34 @@ type SignalSummary struct {
 	CurrentReplicas             int32     `json:"currentReplicas,omitempty"`
 	TargetUtilization           float64   `json:"targetUtilization,omitempty"`
 	EffectivePerReplicaCapacity float64   `json:"effectivePerReplicaCapacity,omitempty"`
+	CapacityWindowStart         time.Time `json:"capacityWindowStart,omitempty"`
+	CapacityWindowEnd           time.Time `json:"capacityWindowEnd,omitempty"`
+	CapacitySampleCount         int       `json:"capacitySampleCount,omitempty"`
 	WarmupSeconds               int64     `json:"warmupSeconds,omitempty"`
 	RequiredReplicasProxy       *int32    `json:"requiredReplicasProxy,omitempty"`
 }
 
 // ForecastSummary is the shared operator-facing forecast digest used by recommendation and replay output.
 type ForecastSummary struct {
-	EvaluatedAt      time.Time `json:"evaluatedAt,omitempty"`
-	GeneratedAt      time.Time `json:"generatedAt,omitempty"`
-	Method           string    `json:"method,omitempty"`
-	HorizonSeconds   int64     `json:"horizonSeconds,omitempty"`
-	ForecastFor      time.Time `json:"forecastFor,omitempty"`
-	PredictedDemand  float64   `json:"predictedDemand,omitempty"`
-	Confidence       float64   `json:"confidence,omitempty"`
-	Reliability      string    `json:"reliability,omitempty"`
-	NormalizedError  float64   `json:"normalizedError,omitempty"`
-	FallbackReason   string    `json:"fallbackReason,omitempty"`
-	AdvisoryCodes    []string  `json:"advisoryCodes,omitempty"`
-	AdvisoryMessages []string  `json:"advisoryMessages,omitempty"`
-	Message          string    `json:"message,omitempty"`
-	Error            string    `json:"error,omitempty"`
+	EvaluatedAt              time.Time `json:"evaluatedAt,omitempty"`
+	GeneratedAt              time.Time `json:"generatedAt,omitempty"`
+	Method                   string    `json:"method,omitempty"`
+	HorizonSeconds           int64     `json:"horizonSeconds,omitempty"`
+	SeasonalitySeconds       int64     `json:"seasonalitySeconds,omitempty"`
+	SeasonalitySource        string    `json:"seasonalitySource,omitempty"`
+	SeasonalityConfidence    float64   `json:"seasonalityConfidence,omitempty"`
+	ForecastFor              time.Time `json:"forecastFor,omitempty"`
+	PredictedDemand          float64   `json:"predictedDemand,omitempty"`
+	Confidence               float64   `json:"confidence,omitempty"`
+	Reliability              string    `json:"reliability,omitempty"`
+	NormalizedError          float64   `json:"normalizedError,omitempty"`
+	UnderPredictionRate      float64   `json:"underPredictionRate,omitempty"`
+	MedianUnderPredictionPct float64   `json:"medianUnderPredictionPct,omitempty"`
+	FallbackReason           string    `json:"fallbackReason,omitempty"`
+	AdvisoryCodes            []string  `json:"advisoryCodes,omitempty"`
+	AdvisoryMessages         []string  `json:"advisoryMessages,omitempty"`
+	Message                  string    `json:"message,omitempty"`
+	Error                    string    `json:"error,omitempty"`
 }
 
 // ForecastSummaryFromResult converts one selected forecast point into the shared explainability schema.
@@ -102,18 +110,23 @@ func ForecastSummaryFromResult(result forecast.Result, selectedPoint forecast.Po
 	}
 
 	summary := ForecastSummary{
-		EvaluatedAt:      evaluatedAt.UTC(),
-		GeneratedAt:      result.GeneratedAt.UTC(),
-		Method:           method,
-		HorizonSeconds:   int64(result.Horizon / time.Second),
-		ForecastFor:      selectedPoint.Timestamp.UTC(),
-		PredictedDemand:  selectedPoint.Value,
-		Confidence:       result.Confidence,
-		Reliability:      string(result.Reliability),
-		NormalizedError:  result.Validation.NormalizedError,
-		FallbackReason:   result.FallbackReason,
-		AdvisoryCodes:    advisoryCodes(result.Advisories),
-		AdvisoryMessages: advisoryMessages(result.Advisories),
+		EvaluatedAt:              evaluatedAt.UTC(),
+		GeneratedAt:              result.GeneratedAt.UTC(),
+		Method:                   method,
+		HorizonSeconds:           int64(result.Horizon / time.Second),
+		SeasonalitySeconds:       int64(result.Seasonality / time.Second),
+		SeasonalitySource:        string(result.SeasonalitySource),
+		SeasonalityConfidence:    result.SeasonalityConfidence,
+		ForecastFor:              selectedPoint.Timestamp.UTC(),
+		PredictedDemand:          selectedPoint.Value,
+		Confidence:               result.Confidence,
+		Reliability:              string(result.Reliability),
+		NormalizedError:          result.Validation.NormalizedError,
+		UnderPredictionRate:      result.Validation.UnderPredictionRate,
+		MedianUnderPredictionPct: result.Validation.MedianUnderPredictionPct,
+		FallbackReason:           result.FallbackReason,
+		AdvisoryCodes:            advisoryCodes(result.Advisories),
+		AdvisoryMessages:         advisoryMessages(result.Advisories),
 	}
 	summary.Message = buildForecastMessage(summary)
 	return summary
@@ -292,11 +305,16 @@ func (StatusProjection) Forecast(summary ForecastSummary) *skalev1alpha1.Forecas
 		return nil
 	}
 	return &skalev1alpha1.ForecastSummary{
-		EvaluatedAt: timeToMetaPtr(summary.EvaluatedAt),
-		Method:      summary.Method,
-		Horizon:     metaDuration(summary.HorizonSeconds),
-		Confidence:  summary.Confidence,
-		Message:     summary.Message,
+		EvaluatedAt:              timeToMetaPtr(summary.EvaluatedAt),
+		Method:                   summary.Method,
+		Horizon:                  metaDuration(summary.HorizonSeconds),
+		Seasonality:              metaDuration(summary.SeasonalitySeconds),
+		SeasonalitySource:        summary.SeasonalitySource,
+		SeasonalityConfidence:    summary.SeasonalityConfidence,
+		Confidence:               summary.Confidence,
+		UnderPredictionRate:      summary.UnderPredictionRate,
+		MedianUnderPredictionPct: summary.MedianUnderPredictionPct,
+		Message:                  summary.Message,
 	}
 }
 
@@ -336,16 +354,34 @@ func buildForecastMessage(summary ForecastSummary) string {
 	if method == "" {
 		method = "forecast"
 	}
+	seasonality := forecastSeasonalityClause(summary)
 	if summary.ForecastFor.IsZero() {
-		return fmt.Sprintf("%s predicted %.2f demand", method, summary.PredictedDemand)
+		return fmt.Sprintf("%s predicted %.2f demand%s", method, summary.PredictedDemand, seasonality)
 	}
 	return fmt.Sprintf(
-		"%s predicted %.2f demand for %s at confidence %.2f",
+		"%s predicted %.2f demand for %s at confidence %.2f%s",
 		method,
 		summary.PredictedDemand,
 		summary.ForecastFor.UTC().Format(time.RFC3339),
 		summary.Confidence,
+		seasonality,
 	)
+}
+
+func forecastSeasonalityClause(summary ForecastSummary) string {
+	switch summary.SeasonalitySource {
+	case string(forecast.SeasonalitySourceConfigured):
+		if summary.SeasonalitySeconds > 0 {
+			return fmt.Sprintf(" using configured seasonality %s", time.Duration(summary.SeasonalitySeconds)*time.Second)
+		}
+	case string(forecast.SeasonalitySourceDetected):
+		if summary.SeasonalitySeconds > 0 {
+			return fmt.Sprintf(" using detected seasonality %s at confidence %.2f", time.Duration(summary.SeasonalitySeconds)*time.Second, summary.SeasonalityConfidence)
+		}
+	case string(forecast.SeasonalitySourceNone):
+		return " with no seasonality detected"
+	}
+	return ""
 }
 
 func buildSuppressionMessage(state string, reasons []SuppressionReason) string {

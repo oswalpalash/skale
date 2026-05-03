@@ -122,7 +122,12 @@ Current notable fields:
 
 - `targetRef`
 - `forecastHorizon`
+- `forecastSeasonality` when the operator has evidence for a recurring period;
+  omit it to make the controller report either detected seasonality or
+  non-seasonal mode
 - `warmup.estimatedReadyDuration`
+- `targetUtilization`, the utilization target used to convert demand forecasts
+  into replica counts
 - `confidenceThreshold`
 - `minReplicas`
 - `maxReplicas`

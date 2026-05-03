@@ -115,6 +115,12 @@ spec:
                 description: ForecastHorizon is the short-horizon lookahead for replay
                   and recommendation evaluation.
                 type: string
+              forecastSeasonality:
+                description: |-
+                  ForecastSeasonality is an optional operator-declared recurring period for forecast models.
+                  When omitted, the controller may use detected seasonality only when evidence is sufficient;
+                  otherwise it must run in non-seasonal advisory mode.
+                type: string
               knownEvents:
                 items:
                   description: KnownEvent marks an operator-supplied window that may
@@ -203,6 +209,13 @@ spec:
                 required:
                 - name
                 type: object
+              targetUtilization:
+                default: 0.8
+                description: TargetUtilization is the utilization contract used to
+                  translate demand forecasts into replica counts.
+                maximum: 1
+                minimum: 0.1
+                type: number
               warmup:
                 description: WarmupSettings captures the minimum warmup input needed
                   for bounded recommendations.
@@ -290,10 +303,20 @@ spec:
                     type: string
                   horizon:
                     type: string
+                  medianUnderPredictionPct:
+                    type: number
                   message:
                     type: string
                   method:
                     type: string
+                  seasonality:
+                    type: string
+                  seasonalityConfidence:
+                    type: number
+                  seasonalitySource:
+                    type: string
+                  underPredictionRate:
+                    type: number
                 type: object
               lastRecommendation:
                 description: RecommendationSummary is the latest surfaced recommendation

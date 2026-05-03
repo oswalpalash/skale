@@ -143,14 +143,22 @@ type ReplaySummary struct {
 	Mode SummaryMode `json:"mode,omitempty"`
 	Summary
 
-	EvaluationCount          int            `json:"evaluationCount,omitempty"`
-	AvailableCount           int            `json:"availableCount,omitempty"`
-	SuppressedCount          int            `json:"suppressedCount,omitempty"`
-	UnavailableCount         int            `json:"unavailableCount,omitempty"`
-	RecommendationEventCount int            `json:"recommendationEventCount,omitempty"`
-	SuppressionReasonCounts  map[string]int `json:"suppressionReasonCounts,omitempty"`
-	ForecastModelCounts      map[string]int `json:"forecastModelCounts,omitempty"`
-	ReliabilityCounts        map[string]int `json:"reliabilityCounts,omitempty"`
+	EvaluationCount          int                    `json:"evaluationCount,omitempty"`
+	AvailableCount           int                    `json:"availableCount,omitempty"`
+	SuppressedCount          int                    `json:"suppressedCount,omitempty"`
+	UnavailableCount         int                    `json:"unavailableCount,omitempty"`
+	RecommendationEventCount int                    `json:"recommendationEventCount,omitempty"`
+	SuppressionReasonCounts  map[string]int         `json:"suppressionReasonCounts,omitempty"`
+	ForecastModelCounts      map[string]int         `json:"forecastModelCounts,omitempty"`
+	ReliabilityCounts        map[string]int         `json:"reliabilityCounts,omitempty"`
+	ForecastQuality          ForecastQualitySummary `json:"forecastQuality,omitempty"`
+}
+
+type ForecastQualitySummary struct {
+	HoldoutPoints            int     `json:"holdoutPoints,omitempty"`
+	UnderPredictedPoints     int     `json:"underPredictedPoints,omitempty"`
+	UnderPredictionRate      float64 `json:"underPredictionRate,omitempty"`
+	MedianUnderPredictionPct float64 `json:"medianUnderPredictionPct,omitempty"`
 }
 
 type ForecastEvaluation = explain.ForecastSummary
@@ -218,6 +226,30 @@ type observation struct {
 type scheduledActivation struct {
 	At       time.Time
 	Replicas int32
+}
+
+type forecastQualityAccumulator struct {
+	holdoutPoints         int
+	underPredictedPoints  int
+	underPredictionRatios []float64
+}
+
+func (a *forecastQualityAccumulator) add(validation forecast.Validation) {
+	a.holdoutPoints += validation.HoldoutPoints
+	a.underPredictedPoints += validation.UnderPredictedPoints
+	a.underPredictionRatios = append(a.underPredictionRatios, validation.UnderPredictionRatios...)
+}
+
+func (a forecastQualityAccumulator) summary() ForecastQualitySummary {
+	if a.holdoutPoints == 0 {
+		return ForecastQualitySummary{}
+	}
+	return ForecastQualitySummary{
+		HoldoutPoints:            a.holdoutPoints,
+		UnderPredictedPoints:     a.underPredictedPoints,
+		UnderPredictionRate:      float64(a.underPredictedPoints) / float64(a.holdoutPoints),
+		MedianUnderPredictionPct: medianFloat(a.underPredictionRatios) * 100,
+	}
 }
 
 // Run executes a fixed-step historical replay for one supported workload.
@@ -328,6 +360,7 @@ func (e Engine) Run(ctx context.Context, spec Spec) (Result, error) {
 	forecastCounts := map[string]int{}
 	reliabilityCounts := map[string]int{}
 	advisoryCounts := map[string]int{}
+	forecastQuality := forecastQualityAccumulator{}
 
 	currentSimulated := baselineSummary.StartReplicas
 	minSimulated := currentSimulated
@@ -424,10 +457,12 @@ func (e Engine) Run(ctx context.Context, spec Spec) (Result, error) {
 		evaluation.Forecast = forecastSummary
 		forecastCounts[forecastResult.Model]++
 		reliabilityCounts[string(forecastResult.Reliability)]++
+		forecastQuality.add(forecastResult.Validation)
 		for _, advisory := range forecastResult.Advisories {
 			advisoryCounts[advisory.Code]++
 		}
 
+		capacityEstimate := estimateCapacity(observed, stepObs.At, resolved.Options.CapacityLookback, resolved.Options.MinimumCapacitySamples, resolved.Policy.TargetUtilization)
 		recommendation, err := recommendEngine.Recommend(recommend.Input{
 			Workload:            resolved.Policy.Workload,
 			WorkloadRef:         workloadRef,
@@ -441,6 +476,7 @@ func (e Engine) Run(ctx context.Context, spec Spec) (Result, error) {
 			TargetUtilization:   resolved.Policy.TargetUtilization,
 			EstimatedWarmup:     resolved.Policy.Warmup,
 			TelemetrySummary:    &stepTelemetrySummary,
+			CapacityEstimate:    capacityEstimate,
 			ConfidenceScore:     forecastResult.Confidence,
 			ConfidenceThreshold: resolved.Policy.ConfidenceThreshold,
 			MinReplicas:         resolved.Policy.MinReplicas,
@@ -488,9 +524,9 @@ func (e Engine) Run(ctx context.Context, spec Spec) (Result, error) {
 			}
 		}
 
-		requiredReplicas, capacity, capacityKnown := estimateRequiredReplicas(observed, stepObs.At, resolved.Options.CapacityLookback, resolved.Options.MinimumCapacitySamples, resolved.Policy.TargetUtilization)
+		requiredReplicas, capacityKnown := requiredReplicasFromCapacity(stepObs.Demand, capacityEstimate)
 		evaluation.CapacityEstimated = capacityKnown
-		evaluation.CapacityPerReplica = capacity
+		evaluation.CapacityPerReplica = capacityEstimate.PerReplicaCapacity
 		if capacityKnown {
 			evaluation.RequiredReplicasProxy = int32Ptr(requiredReplicas)
 			if evaluation.Decision != nil {
@@ -566,6 +602,7 @@ func (e Engine) Run(ctx context.Context, spec Spec) (Result, error) {
 	result.Evaluations = evaluations
 	result.RecommendationEvents = events
 	result.Replay = buildReplaySummary(replayObs, evaluations, events, suppressionCounts, forecastCounts, reliabilityCounts, resolved.Window)
+	result.Replay.ForecastQuality = forecastQuality.summary()
 	result.Baseline.OverloadMinutesProxy = baselineOverloadMinutes
 	result.Baseline.ExcessHeadroomMinutesProxy = baselineExcessMinutes
 	result.Baseline.ScoredMinutes = scoredMinutes
@@ -866,34 +903,47 @@ func pendingAfter(pending []scheduledActivation, at time.Time) []scheduledActiva
 	return remaining
 }
 
-func estimateRequiredReplicas(observed []observation, evaluatedAt time.Time, lookback time.Duration, minimumSamples int, targetUtilization float64) (int32, float64, bool) {
+func estimateCapacity(observed []observation, evaluatedAt time.Time, lookback time.Duration, minimumSamples int, targetUtilization float64) *recommend.CapacityEstimate {
 	start := evaluatedAt.Add(-lookback)
+	estimate := &recommend.CapacityEstimate{
+		WindowStart: start.UTC(),
+		WindowEnd:   evaluatedAt.UTC(),
+	}
 	capacities := make([]float64, 0, minimumSamples)
-	var demand float64
+	if targetUtilization <= 0 || targetUtilization > 1 {
+		return estimate
+	}
 	for _, entry := range observed {
 		if entry.At.Before(start) || entry.At.After(evaluatedAt) {
 			continue
-		}
-		if entry.At.Equal(evaluatedAt) {
-			demand = entry.Demand
 		}
 		if entry.Replicas < 1 || entry.Demand <= 0 {
 			continue
 		}
 		capacities = append(capacities, entry.Demand/(float64(entry.Replicas)*targetUtilization))
 	}
+	estimate.SampleCount = len(capacities)
 	if len(capacities) < minimumSamples {
-		return 0, 0, false
+		return estimate
 	}
 	capacity := medianFloat(capacities)
 	if capacity <= 0 {
-		return 0, 0, false
+		return estimate
+	}
+	estimate.Estimated = true
+	estimate.PerReplicaCapacity = capacity
+	return estimate
+}
+
+func requiredReplicasFromCapacity(demand float64, estimate *recommend.CapacityEstimate) (int32, bool) {
+	if estimate == nil || !estimate.Estimated || estimate.PerReplicaCapacity <= 0 {
+		return 0, false
 	}
 	if demand <= 0 {
-		return 0, capacity, true
+		return 0, true
 	}
-	required := int32(math.Ceil(demand / capacity))
-	return required, capacity, true
+	required := int32(math.Ceil(demand / estimate.PerReplicaCapacity))
+	return required, true
 }
 
 func buildStepGrid(start, end time.Time, step time.Duration) []time.Time {

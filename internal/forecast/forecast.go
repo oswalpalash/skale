@@ -28,9 +28,19 @@ const (
 const (
 	AdvisoryImplicitPersistence = "implicit_persistence"
 	AdvisoryNonSeasonalMode     = "non_seasonal_mode"
+	AdvisoryNoSeasonality       = "no_seasonality_detected"
+	AdvisorySeasonalityDetected = "seasonality_detected"
 	AdvisoryLimitedHistory      = "limited_history"
 	AdvisoryModelUnavailable    = "model_unavailable"
 	AdvisoryModelDivergence     = "model_divergence"
+)
+
+type SeasonalitySource string
+
+const (
+	SeasonalitySourceConfigured SeasonalitySource = "configured"
+	SeasonalitySourceDetected   SeasonalitySource = "detected"
+	SeasonalitySourceNone       SeasonalitySource = "none"
 )
 
 // Point is one normalized demand observation or forecast point.
@@ -47,11 +57,13 @@ type Point struct {
 // - Horizon is short compared to the amount of history retained
 // - Seasonality is optional; when omitted, models fall back to a one-step persistence season
 type Input struct {
-	Series      []Point
-	EvaluatedAt time.Time
-	Horizon     time.Duration
-	Step        time.Duration
-	Seasonality time.Duration
+	Series                []Point
+	EvaluatedAt           time.Time
+	Horizon               time.Duration
+	Step                  time.Duration
+	Seasonality           time.Duration
+	SeasonalitySource     SeasonalitySource
+	SeasonalityConfidence float64
 }
 
 // Advisory is machine-readable forecast context that can be surfaced in status, CLI, or replay output.
@@ -62,10 +74,14 @@ type Advisory struct {
 
 // Validation summarizes simple holdout-backtest quality for the chosen model.
 type Validation struct {
-	HoldoutPoints   int     `json:"holdoutPoints,omitempty"`
-	MeanAbsoluteErr float64 `json:"meanAbsoluteErr,omitempty"`
-	MeanActual      float64 `json:"meanActual,omitempty"`
-	NormalizedError float64 `json:"normalizedError,omitempty"`
+	HoldoutPoints            int       `json:"holdoutPoints,omitempty"`
+	MeanAbsoluteErr          float64   `json:"meanAbsoluteErr,omitempty"`
+	MeanActual               float64   `json:"meanActual,omitempty"`
+	NormalizedError          float64   `json:"normalizedError,omitempty"`
+	UnderPredictedPoints     int       `json:"underPredictedPoints,omitempty"`
+	UnderPredictionRate      float64   `json:"underPredictionRate,omitempty"`
+	MedianUnderPredictionPct float64   `json:"medianUnderPredictionPct,omitempty"`
+	UnderPredictionRatios    []float64 `json:"-"`
 }
 
 // Result captures a forecast horizon and reliability metadata.
@@ -73,17 +89,19 @@ type Validation struct {
 // Confidence is intentionally simple: it is derived from normalized holdout MAE rather than opaque probabilistic math.
 // This keeps the output explainable and deterministic for both live recommendation and replay paths.
 type Result struct {
-	Model          string           `json:"model,omitempty"`
-	GeneratedAt    time.Time        `json:"generatedAt,omitempty"`
-	Horizon        time.Duration    `json:"horizon,omitempty"`
-	Step           time.Duration    `json:"step,omitempty"`
-	Seasonality    time.Duration    `json:"seasonality,omitempty"`
-	Points         []Point          `json:"points,omitempty"`
-	Confidence     float64          `json:"confidence,omitempty"`
-	Reliability    ReliabilityLevel `json:"reliability,omitempty"`
-	Validation     Validation       `json:"validation,omitempty"`
-	FallbackReason string           `json:"fallbackReason,omitempty"`
-	Advisories     []Advisory       `json:"advisories,omitempty"`
+	Model                 string            `json:"model,omitempty"`
+	GeneratedAt           time.Time         `json:"generatedAt,omitempty"`
+	Horizon               time.Duration     `json:"horizon,omitempty"`
+	Step                  time.Duration     `json:"step,omitempty"`
+	Seasonality           time.Duration     `json:"seasonality,omitempty"`
+	SeasonalitySource     SeasonalitySource `json:"seasonalitySource,omitempty"`
+	SeasonalityConfidence float64           `json:"seasonalityConfidence,omitempty"`
+	Points                []Point           `json:"points,omitempty"`
+	Confidence            float64           `json:"confidence,omitempty"`
+	Reliability           ReliabilityLevel  `json:"reliability,omitempty"`
+	Validation            Validation        `json:"validation,omitempty"`
+	FallbackReason        string            `json:"fallbackReason,omitempty"`
+	Advisories            []Advisory        `json:"advisories,omitempty"`
 }
 
 // Model produces a short-horizon demand forecast from normalized demand history.
@@ -93,13 +111,15 @@ type Model interface {
 }
 
 type preparedInput struct {
-	series        []Point
-	generatedAt   time.Time
-	horizon       time.Duration
-	step          time.Duration
-	horizonPoints int
-	seasonality   time.Duration
-	seasonPoints  int
+	series                []Point
+	generatedAt           time.Time
+	horizon               time.Duration
+	step                  time.Duration
+	horizonPoints         int
+	seasonality           time.Duration
+	seasonalitySource     SeasonalitySource
+	seasonalityConfidence float64
+	seasonPoints          int
 }
 
 func prepareInput(input Input) (preparedInput, error) {
@@ -121,13 +141,21 @@ func prepareInput(input Input) (preparedInput, error) {
 	}
 
 	seasonality := input.Seasonality
+	seasonalitySource := input.SeasonalitySource
 	if seasonality <= 0 {
-		seasonality = step
+		seasonalitySource = SeasonalitySourceNone
 	}
 	seasonPoints := int(math.Round(float64(seasonality) / float64(step)))
 	if seasonPoints < 1 {
 		seasonPoints = 1
-		seasonality = step
+		seasonality = 0
+	}
+	if seasonalitySource == "" {
+		if seasonality > 0 {
+			seasonalitySource = SeasonalitySourceConfigured
+		} else {
+			seasonalitySource = SeasonalitySourceNone
+		}
 	}
 
 	generatedAt := input.Series[len(input.Series)-1].Timestamp.UTC()
@@ -144,13 +172,15 @@ func prepareInput(input Input) (preparedInput, error) {
 	}
 
 	return preparedInput{
-		series:        normalizedSeries,
-		generatedAt:   generatedAt,
-		horizon:       input.Horizon,
-		step:          step,
-		horizonPoints: horizonPoints,
-		seasonality:   seasonality,
-		seasonPoints:  seasonPoints,
+		series:                normalizedSeries,
+		generatedAt:           generatedAt,
+		horizon:               input.Horizon,
+		step:                  step,
+		horizonPoints:         horizonPoints,
+		seasonality:           seasonality,
+		seasonalitySource:     seasonalitySource,
+		seasonalityConfidence: clamp(input.SeasonalityConfidence, 0, 1),
+		seasonPoints:          seasonPoints,
 	}, nil
 }
 
@@ -226,9 +256,13 @@ func evaluateForecast(actual []float64, predicted []float64) Validation {
 
 	var absErrSum float64
 	var actualSum float64
+	underPredictionRatios := make([]float64, 0, count)
 	for index := 0; index < count; index++ {
 		absErrSum += math.Abs(actual[index] - predicted[index])
 		actualSum += actual[index]
+		if actual[index] > 0 && predicted[index] < actual[index] {
+			underPredictionRatios = append(underPredictionRatios, (actual[index]-predicted[index])/actual[index])
+		}
 	}
 
 	mae := absErrSum / float64(count)
@@ -236,10 +270,14 @@ func evaluateForecast(actual []float64, predicted []float64) Validation {
 	scale := math.Max(meanActual, 1)
 
 	return Validation{
-		HoldoutPoints:   count,
-		MeanAbsoluteErr: mae,
-		MeanActual:      meanActual,
-		NormalizedError: mae / scale,
+		HoldoutPoints:            count,
+		MeanAbsoluteErr:          mae,
+		MeanActual:               meanActual,
+		NormalizedError:          mae / scale,
+		UnderPredictedPoints:     len(underPredictionRatios),
+		UnderPredictionRate:      float64(len(underPredictionRatios)) / float64(count),
+		MedianUnderPredictionPct: medianFloat64(underPredictionRatios) * 100,
+		UnderPredictionRatios:    underPredictionRatios,
 	}
 }
 
@@ -295,6 +333,19 @@ func clamp(value float64, minValue float64, maxValue float64) float64 {
 		return maxValue
 	}
 	return value
+}
+
+func medianFloat64(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := append([]float64(nil), values...)
+	sort.Float64s(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid]
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2
 }
 
 func min(a int, b int) int {

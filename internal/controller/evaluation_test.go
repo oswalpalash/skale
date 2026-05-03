@@ -305,8 +305,37 @@ func TestControllerForecastSeasonalityUsesOverride(t *testing.T) {
 
 	spec := testPolicy().Spec
 	spec.ForecastHorizon.Duration = 10 * time.Minute
-	if got := controllerForecastSeasonality(spec, 20*time.Minute); got != 20*time.Minute {
-		t.Fatalf("controllerForecastSeasonality() = %s, want %s", got, 20*time.Minute)
+	got := controllerForecastSeasonality(spec, 20*time.Minute, nil)
+	if got.Period != 20*time.Minute || got.Source != forecast.SeasonalitySourceConfigured {
+		t.Fatalf("controllerForecastSeasonality() = %#v, want configured 20m", got)
+	}
+}
+
+func TestControllerForecastSeasonalityDoesNotDefaultToHorizon(t *testing.T) {
+	t.Parallel()
+
+	spec := testPolicy().Spec
+	spec.ForecastHorizon.Duration = 10 * time.Minute
+
+	got := controllerForecastSeasonality(spec, 0, nil)
+	if got.Period != 0 || got.Source != forecast.SeasonalitySourceNone {
+		t.Fatalf("controllerForecastSeasonality() = %#v, want no detected seasonality", got)
+	}
+}
+
+func TestControllerForecastSeasonalityDetectsEvidenceBackedPeriod(t *testing.T) {
+	t.Parallel()
+
+	spec := testPolicy().Spec
+	spec.ForecastHorizon.Duration = 5 * time.Minute
+	series := signalSeriesToForecastPoints(syntheticSnapshot().Demand)
+
+	got := controllerForecastSeasonality(spec, 0, series)
+	if got.Period != 10*time.Minute || got.Source != forecast.SeasonalitySourceDetected {
+		t.Fatalf("controllerForecastSeasonality() = %#v, want detected 10m", got)
+	}
+	if got.Confidence <= 0 {
+		t.Fatalf("confidence = %.2f, want positive", got.Confidence)
 	}
 }
 

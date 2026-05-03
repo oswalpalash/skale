@@ -50,6 +50,7 @@ type replayHTMLView struct {
 	ExcessDelta         string
 	SuppressionSummary  string
 	ForecastSummary     string
+	ForecastQuality     string
 	SignalSummaries     []string
 	EventCards          []htmlEventCard
 	ConfidenceNotes     []string
@@ -175,6 +176,7 @@ func buildReplayHTMLView(result replay.Result, focusWidth time.Duration) (replay
 		ExcessDelta:        formatSignedFloat(outcomeDelta(result.Baseline.ExcessHeadroomMinutesProxy, result.Replay.ExcessHeadroomMinutesProxy)),
 		SuppressionSummary: fallbackText(renderCountsInline(result.Replay.SuppressionReasonCounts), "none"),
 		ForecastSummary:    fallbackText(renderCountsInline(result.Replay.ForecastModelCounts), "none"),
+		ForecastQuality:    htmlForecastQuality(result.Replay.ForecastQuality),
 		ConfidenceNotes:    append([]string(nil), result.ConfidenceNotes...),
 		Caveats:            append([]string(nil), result.Caveats...),
 		UnsupportedReasons: append([]string(nil), result.UnsupportedReasons...),
@@ -241,6 +243,17 @@ func buildReplayHTMLView(result replay.Result, focusWidth time.Duration) (replay
 	}
 	view.ChartDataJSON = chartData
 	return view, nil
+}
+
+func htmlForecastQuality(summary replay.ForecastQualitySummary) string {
+	if summary.HoldoutPoints == 0 {
+		return "no holdout quality summary"
+	}
+	return fmt.Sprintf(
+		"under-predicted %.0f%% of holdout points; median under-prediction %.0f%%",
+		summary.UnderPredictionRate*100,
+		summary.MedianUnderPredictionPct,
+	)
 }
 
 func normalizedUIFocusWindow(width time.Duration) time.Duration {
@@ -1454,7 +1467,7 @@ var replayUITemplate = htmltemplate.Must(htmltemplate.New("replay-ui").Parse(`<!
         <div class="card">
           <div class="label">Recommendation Events</div>
           <div class="value">{{.RecommendationCount}}</div>
-          <p>{{.ReplayWindowLabel}}. {{.ForecastSummary}} forecast model counts across replay evaluations.</p>
+          <p>{{.ReplayWindowLabel}}. {{.ForecastSummary}} forecast model counts across replay evaluations. {{.ForecastQuality}}.</p>
         </div>
         <div class="card">
           <div class="label">Evaluation Mix</div>

@@ -175,11 +175,14 @@ type BuildInput struct {
 	ForecastTimestamp time.Time
 	ForecastSummary   *ForecastSummary
 
-	CurrentDemand     float64
-	CurrentReplicas   int32
-	TargetUtilization float64
-	Warmup            time.Duration
-	Telemetry         *TelemetryReadinessSummary
+	CurrentDemand       float64
+	CurrentReplicas     int32
+	TargetUtilization   float64
+	Warmup              time.Duration
+	Telemetry           *TelemetryReadinessSummary
+	CapacityWindowStart time.Time
+	CapacityWindowEnd   time.Time
+	CapacitySampleCount int
 
 	ConfidenceScore     float64
 	ConfidenceThreshold float64
@@ -251,6 +254,9 @@ func (DefaultBuilder) Build(input BuildInput) Decision {
 		CurrentReplicas:             input.CurrentReplicas,
 		TargetUtilization:           input.TargetUtilization,
 		EffectivePerReplicaCapacity: input.EffectivePerReplicaCapacity,
+		CapacityWindowStart:         input.CapacityWindowStart.UTC(),
+		CapacityWindowEnd:           input.CapacityWindowEnd.UTC(),
+		CapacitySampleCount:         input.CapacitySampleCount,
 		WarmupSeconds:               int64(input.Warmup / time.Second),
 	}
 	forecastSummary := buildDecisionForecastSummary(input)

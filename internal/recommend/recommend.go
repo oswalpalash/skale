@@ -37,6 +37,7 @@ type Input struct {
 	TargetUtilization float64
 	EstimatedWarmup   time.Duration
 	TelemetrySummary  *explain.TelemetryReadinessSummary
+	CapacityEstimate  *CapacityEstimate
 
 	ConfidenceScore     float64
 	ConfidenceThreshold float64
@@ -57,6 +58,14 @@ type Input struct {
 	DependencyHealth   []safety.DependencyHealthStatus
 	OperatorMode       safety.OperatorMode
 	CircuitBreaker     *safety.CircuitBreaker
+}
+
+type CapacityEstimate struct {
+	Estimated          bool
+	PerReplicaCapacity float64
+	WindowStart        time.Time
+	WindowEnd          time.Time
+	SampleCount        int
 }
 
 // Result is the bounded recommendation output shared by live and replay flows.
@@ -163,12 +172,20 @@ func (e DeterministicEngine) Recommend(input Input) (Result, error) {
 			Message:  "current replicas must be at least 1 to size positive forecasted demand",
 		})
 	}
-	if input.CurrentDemand <= 0 && input.ForecastedDemand > 0 {
+	if input.CurrentDemand <= 0 && input.ForecastedDemand > 0 && input.CapacityEstimate == nil {
 		state.suppressionReasons = append(state.suppressionReasons, explain.SuppressionReason{
 			Code:     explain.ReasonNoCurrentDemandBaseline,
 			Category: explain.SuppressionCategoryAvailability,
 			Severity: explain.SuppressionSeverityError,
 			Message:  "current demand must be positive to size positive forecasted demand from observed capacity",
+		})
+	}
+	if input.ForecastedDemand > 0 && input.CapacityEstimate != nil && (!input.CapacityEstimate.Estimated || input.CapacityEstimate.PerReplicaCapacity <= 0) {
+		state.suppressionReasons = append(state.suppressionReasons, explain.SuppressionReason{
+			Code:     explain.ReasonNoCapacityBaseline,
+			Category: explain.SuppressionCategoryAvailability,
+			Severity: explain.SuppressionSeverityError,
+			Message:  "stable per-replica capacity could not be estimated from the recent demand and replica window",
 		})
 	}
 
@@ -178,6 +195,9 @@ func (e DeterministicEngine) Recommend(input Input) (Result, error) {
 	}
 
 	state.effectivePerReplicaCapacity = effectivePerReplicaCapacity(input.CurrentDemand, input.CurrentReplicas, input.TargetUtilization)
+	if input.CapacityEstimate != nil {
+		state.effectivePerReplicaCapacity = input.CapacityEstimate.PerReplicaCapacity
+	}
 	if input.CurrentDemand <= 0 && input.ForecastedDemand <= 0 {
 		state.effectivePerReplicaCapacity = 0
 		state.rawRequiredReplicas = 0
@@ -329,6 +349,9 @@ func buildResult(input Input, state evaluationState, builder explain.Builder) Re
 		TargetUtilization:           input.TargetUtilization,
 		Warmup:                      input.EstimatedWarmup,
 		Telemetry:                   input.TelemetrySummary,
+		CapacityWindowStart:         capacityWindowStart(input.CapacityEstimate),
+		CapacityWindowEnd:           capacityWindowEnd(input.CapacityEstimate),
+		CapacitySampleCount:         capacitySampleCount(input.CapacityEstimate),
 		ConfidenceScore:             input.ConfidenceScore,
 		ConfidenceThreshold:         input.ConfidenceThreshold,
 		MinReplicas:                 input.MinReplicas,
@@ -366,6 +389,27 @@ func buildResult(input Input, state evaluationState, builder explain.Builder) Re
 	})
 
 	return result
+}
+
+func capacityWindowStart(estimate *CapacityEstimate) time.Time {
+	if estimate == nil {
+		return time.Time{}
+	}
+	return estimate.WindowStart
+}
+
+func capacityWindowEnd(estimate *CapacityEstimate) time.Time {
+	if estimate == nil {
+		return time.Time{}
+	}
+	return estimate.WindowEnd
+}
+
+func capacitySampleCount(estimate *CapacityEstimate) int {
+	if estimate == nil {
+		return 0
+	}
+	return estimate.SampleCount
 }
 
 func effectivePerReplicaCapacity(currentDemand float64, currentReplicas int32, targetUtilization float64) float64 {

@@ -127,15 +127,26 @@ func TestTelemetrySummaryAndStatusProjection(t *testing.T) {
 	}
 
 	forecastStatus := projector.Forecast(ForecastSummary{
-		EvaluatedAt:     now,
-		Method:          "seasonal_naive",
-		HorizonSeconds:  300,
-		PredictedDemand: 320,
-		Confidence:      0.88,
-		Message:         "seasonal_naive predicted 320.00 demand",
+		EvaluatedAt:              now,
+		Method:                   "seasonal_naive",
+		HorizonSeconds:           300,
+		SeasonalitySeconds:       1200,
+		SeasonalitySource:        string(forecast.SeasonalitySourceConfigured),
+		SeasonalityConfidence:    1,
+		PredictedDemand:          320,
+		Confidence:               0.88,
+		UnderPredictionRate:      0.38,
+		MedianUnderPredictionPct: 14,
+		Message:                  "seasonal_naive predicted 320.00 demand",
 	})
 	if forecastStatus == nil || forecastStatus.Method != "seasonal_naive" {
 		t.Fatalf("unexpected forecast status %#v", forecastStatus)
+	}
+	if forecastStatus.Seasonality.Duration != 20*time.Minute || forecastStatus.SeasonalitySource != string(forecast.SeasonalitySourceConfigured) {
+		t.Fatalf("unexpected forecast seasonality status %#v", forecastStatus)
+	}
+	if forecastStatus.UnderPredictionRate != 0.38 || forecastStatus.MedianUnderPredictionPct != 14 {
+		t.Fatalf("unexpected forecast under-prediction status %#v", forecastStatus)
 	}
 
 	recommendationStatus := projector.Recommendation(DefaultBuilder{}.Build(BuildInput{

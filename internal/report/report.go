@@ -73,6 +73,14 @@ func (SummaryWriter) Write(_ context.Context, result replay.Result) ([]byte, err
 		result.Replay.SuppressedCount,
 		result.Replay.UnavailableCount,
 	)
+	if result.Replay.ForecastQuality.HoldoutPoints > 0 {
+		fmt.Fprintf(
+			&buffer,
+			"forecast under-prediction: %.0f%% of holdout points, median under-prediction %.0f%%\n",
+			result.Replay.ForecastQuality.UnderPredictionRate*100,
+			result.Replay.ForecastQuality.MedianUnderPredictionPct,
+		)
+	}
 	if len(result.Replay.SuppressionReasonCounts) > 0 {
 		fmt.Fprintf(&buffer, "suppression: %s\n", renderCountsInline(result.Replay.SuppressionReasonCounts))
 	} else {
@@ -157,6 +165,10 @@ func (MarkdownWriter) Write(_ context.Context, result replay.Result) ([]byte, er
 	fmt.Fprintf(&buffer, "- lookback: `%s`\n", formatSeconds(result.LookbackSeconds))
 	fmt.Fprintf(&buffer, "- forecast horizon: `%s`\n", formatSeconds(result.Policy.ForecastHorizonSeconds))
 	fmt.Fprintf(&buffer, "- warmup assumption: `%s`\n", formatSeconds(result.Policy.WarmupSeconds))
+	fmt.Fprintf(&buffer, "- target utilization: `%.2f`\n", result.Policy.TargetUtilization)
+	if result.Policy.ForecastSeasonalitySeconds > 0 {
+		fmt.Fprintf(&buffer, "- configured forecast seasonality: `%s`\n", formatSeconds(result.Policy.ForecastSeasonalitySeconds))
+	}
 
 	fmt.Fprintf(&buffer, "\n## Baseline Summary\n\n")
 	writeSummary(&buffer, result.Baseline.Summary)
@@ -167,6 +179,11 @@ func (MarkdownWriter) Write(_ context.Context, result replay.Result) ([]byte, er
 	fmt.Fprintf(&buffer, "- suppressed evaluations: `%d`\n", result.Replay.SuppressedCount)
 	fmt.Fprintf(&buffer, "- unavailable evaluations: `%d`\n", result.Replay.UnavailableCount)
 	fmt.Fprintf(&buffer, "- surfaced recommendation events: `%d`\n", result.Replay.RecommendationEventCount)
+	if result.Replay.ForecastQuality.HoldoutPoints > 0 {
+		fmt.Fprintf(&buffer, "- holdout points: `%d`\n", result.Replay.ForecastQuality.HoldoutPoints)
+		fmt.Fprintf(&buffer, "- under-predicted holdout points: `%d` (`%.0f%%`)\n", result.Replay.ForecastQuality.UnderPredictedPoints, result.Replay.ForecastQuality.UnderPredictionRate*100)
+		fmt.Fprintf(&buffer, "- median under-prediction: `%.0f%%`\n", result.Replay.ForecastQuality.MedianUnderPredictionPct)
+	}
 	writeCountsSection(&buffer, "forecast models", result.Replay.ForecastModelCounts)
 	writeCountsSection(&buffer, "forecast reliability", result.Replay.ReliabilityCounts)
 

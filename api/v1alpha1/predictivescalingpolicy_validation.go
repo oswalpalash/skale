@@ -35,8 +35,14 @@ func (s *PredictiveScalingPolicySpec) Validate(path *field.Path) field.ErrorList
 	if s.ForecastHorizon.Duration > maxForecastHorizon {
 		allErrs = append(allErrs, field.Invalid(path.Child("forecastHorizon"), s.ForecastHorizon.String(), "must be 30m or less in v1"))
 	}
+	if s.ForecastSeasonality.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("forecastSeasonality"), s.ForecastSeasonality.String(), "must not be negative"))
+	}
 	if s.Warmup.EstimatedReadyDuration.Duration <= 0 {
 		allErrs = append(allErrs, field.Invalid(path.Child("warmup", "estimatedReadyDuration"), s.Warmup.EstimatedReadyDuration.String(), "must be greater than zero"))
+	}
+	if s.TargetUtilization < 0.1 || s.TargetUtilization > 1 {
+		allErrs = append(allErrs, field.Invalid(path.Child("targetUtilization"), s.TargetUtilization, "must be between 0.1 and 1"))
 	}
 	if s.ConfidenceThreshold < 0.1 || s.ConfidenceThreshold > 1 {
 		allErrs = append(allErrs, field.Invalid(path.Child("confidenceThreshold"), s.ConfidenceThreshold, "must be between 0.1 and 1"))

@@ -10,8 +10,12 @@ spec:
     name: checkout-api
   mode: recommendationOnly
   forecastHorizon: 5m
+  # Optional. Omit when no evidence-backed recurring period is known; the
+  # controller will report detected seasonality or non-seasonal mode.
+  forecastSeasonality: 20m
   warmup:
     estimatedReadyDuration: 45s
+  targetUtilization: 0.8
   confidenceThreshold: 0.7
   minReplicas: 2
   maxReplicas: 8

@@ -19,6 +19,8 @@ Supported today:
 - short-horizon forecasting using simple explainable models
 - telemetry readiness evaluation
 - bounded replica recommendation math
+- explicit sizing assumptions, including policy-level `targetUtilization` and
+  reported seasonality source
 - suppression logic for confidence, telemetry quality, blackout windows,
   dependency health, known events, cooldown/stability, recent error, and node
   headroom
