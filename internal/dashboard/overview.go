@@ -230,6 +230,9 @@ func recommendationDisplayable(status skalev1alpha1.PredictiveScalingPolicyStatu
 	if recommendation == nil {
 		return false
 	}
+	if status.TelemetryReadiness == nil || status.TelemetryReadiness.State != skalev1alpha1.TelemetryReadinessStateReady {
+		return false
+	}
 	if hasSuppressionReason(status.SuppressionReasons, "telemetry_not_ready") {
 		return false
 	}

@@ -244,6 +244,9 @@ func timelineRecommendationDisplayable(status skalev1alpha1.PredictiveScalingPol
 	if recommendation == nil {
 		return false
 	}
+	if status.TelemetryReadiness == nil || status.TelemetryReadiness.State != skalev1alpha1.TelemetryReadinessStateReady {
+		return false
+	}
 	for _, reason := range status.SuppressionReasons {
 		if reason.Code == "telemetry_not_ready" {
 			return false

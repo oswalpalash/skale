@@ -989,15 +989,17 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      const values = history.flatMap(sample => [sample.current, sample.recommended]).filter(value => value != null);
 	      const maxValue = Math.max(1, ...values, 6);
 	      const signalExtent = timelineExtent(history, timeline);
-	      const currentPath = timelinePath(history, 'current', maxValue);
-	      const recommendedPath = hasRecommendation ? timelinePath(history, 'recommended', maxValue) : '';
+	      const currentPath = timelinePath(history, 'current', maxValue, signalExtent, true);
+	      const recommendedPath = hasRecommendation ? timelinePath(history, 'recommended', maxValue, signalExtent, false) : '';
 	      const demandPath = signalLinePath(timeline && timeline.demand, signalExtent);
 	      const pressureArea = pressureAreaPath(preferredPressureSamples(timeline), signalExtent);
-	      const currentPoints = timelinePoints(history, 'current', maxValue, 'point-current');
-	      const recommendedPoints = hasRecommendation ? timelinePoints(history, 'recommended', maxValue, 'point-recommended') : '';
+	      const currentPoints = timelinePoints(history, 'current', maxValue, 'point-current', signalExtent);
+	      const recommendedPoints = hasRecommendation ? timelinePoints(history, 'recommended', maxValue, 'point-recommended', signalExtent, true) : '';
 	      const latest = history[history.length - 1] || {};
-	      const recommendedLabel = latest.recommended == null ? 'recommended: none' : 'recommended: ' + latest.recommended;
-	      const recommendedLine = hasRecommendation ? '<path class="recommended-line" d="' + recommendedPath + '"></path>' : '';
+	      const latestCurrent = latestFieldValue(history, 'current');
+	      const latestRecommended = latestFieldValue(history, 'recommended');
+	      const recommendedLabel = latestRecommended == null ? 'recommended: none' : 'recommended: ' + latestRecommended;
+	      const recommendedLine = recommendedPath ? '<path class="recommended-line" d="' + recommendedPath + '"></path>' : '';
 	      const demandLine = demandPath ? '<path class="demand-line" d="' + demandPath + '"></path>' : '';
 	      const pressureShape = pressureArea ? '<path class="pressure-area" d="' + pressureArea + '"></path>' : '';
 	      const recommendedLegend = hasRecommendation ? '<circle class="point-recommended" cx="370" cy="24" r="5"></circle><text x="382" y="28">recommended</text>' : '<text x="346" y="28">no recommendation yet</text>';
@@ -1012,7 +1014,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        '<text x="506" y="158">now</text>' +
 	        '<text x="30" y="140">0</text>' +
 	        '<text x="24" y="42">' + maxValue + '</text>' +
-	        '<circle class="point-current" cx="214" cy="24" r="5"></circle><text x="226" y="28">current: ' + (latest.current ?? 'unknown') + '</text>' +
+	        '<circle class="point-current" cx="214" cy="24" r="5"></circle><text x="226" y="28">current: ' + (latestCurrent ?? 'unknown') + '</text>' +
 	        recommendedLegend +
 	        pressureShape +
 	        demandLine +
@@ -1215,22 +1217,31 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      }
 	    }
 
-	    function timelinePath(history, field, maxValue) {
-	      const points = timelineCoordinates(history, field, maxValue);
+	    function timelinePath(history, field, maxValue, extent, extendSingle) {
+	      const points = timelineCoordinates(history, field, maxValue, extent);
 	      if (points.length === 0) return '';
 	      if (points.length === 1) {
+	        if (!extendSingle) return '';
 	        const point = points[0];
 	        return 'M' + point.x + ' ' + point.y + ' L526 ' + point.y;
 	      }
 	      return points.map((point, index) => (index === 0 ? 'M' : 'L') + point.x + ' ' + point.y).join(' ');
 	    }
 
-	    function timelinePoints(history, field, maxValue, className) {
-	      const points = timelineCoordinates(history, field, maxValue);
-	      const visiblePoints = points.length > 2 ? [points[0], points[points.length - 1]] : points;
+	    function timelinePoints(history, field, maxValue, className, extent, showAll) {
+	      const points = timelineCoordinates(history, field, maxValue, extent);
+	      const visiblePoints = showAll || points.length <= 2 ? points : [points[0], points[points.length - 1]];
 	      return visiblePoints
 	        .map(point => '<circle class="' + className + '" cx="' + point.x + '" cy="' + point.y + '" r="4"></circle>')
 	        .join('');
+	    }
+
+	    function latestFieldValue(history, field) {
+	      for (let index = history.length - 1; index >= 0; index--) {
+	        const value = history[index][field];
+	        if (value != null) return value;
+	      }
+	      return null;
 	    }
 
 	    function formatAxisAge(start, end) {
@@ -1239,14 +1250,13 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      return '-' + minutes + 'm';
 	    }
 
-	    function timelineCoordinates(history, field, maxValue) {
+	    function timelineCoordinates(history, field, maxValue, extent) {
 	      const samples = history.filter(sample => sample[field] != null);
 	      if (samples.length === 0) return [];
-	      const minT = Math.min(...samples.map(sample => Number(sample.t)));
-	      const maxT = Math.max(...samples.map(sample => Number(sample.t)));
-	      const span = Math.max(1, maxT - minT);
+	      const minT = extent ? extent.minT : Math.min(...samples.map(sample => Number(sample.t)));
+	      const span = extent ? extent.span : Math.max(1, Math.max(...samples.map(sample => Number(sample.t))) - minT);
 	      return samples.map(sample => {
-	        const x = samples.length === 1 ? 70 : Math.round(70 + ((Number(sample.t) - minT) / span) * 456);
+	        const x = Math.round(70 + ((Number(sample.t) - minT) / span) * 456);
 	        const y = Math.round(138 - (Number(sample[field]) / maxValue) * 104);
 	        return { x, y };
 	      });

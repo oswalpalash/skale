@@ -91,6 +91,9 @@ func TestDashboardServerServesTimelineAPI(t *testing.T) {
 				TargetRef: skalev1alpha1.TargetReference{Name: "checkout-api"},
 			},
 			Status: skalev1alpha1.PredictiveScalingPolicyStatus{
+				TelemetryReadiness: &skalev1alpha1.TelemetryReadinessSummary{
+					State: skalev1alpha1.TelemetryReadinessStateReady,
+				},
 				LastRecommendation: &skalev1alpha1.RecommendationSummary{
 					State:               skalev1alpha1.RecommendationStateAvailable,
 					EvaluatedAt:         &evaluatedAt,
@@ -164,6 +167,9 @@ func TestDashboardServerHidesTimelineRecommendationDuringTelemetryLearning(t *te
 				TargetRef: skalev1alpha1.TargetReference{Name: "checkout-api"},
 			},
 			Status: skalev1alpha1.PredictiveScalingPolicyStatus{
+				TelemetryReadiness: &skalev1alpha1.TelemetryReadinessSummary{
+					State: skalev1alpha1.TelemetryReadinessStateDegraded,
+				},
 				SuppressionReasons: []skalev1alpha1.SuppressionReason{{
 					Code: "telemetry_not_ready",
 				}},
