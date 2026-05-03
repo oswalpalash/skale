@@ -93,6 +93,47 @@ func TestBuildOverviewSeparatesQualificationFromRecommendations(t *testing.T) {
 	}
 }
 
+func TestBuildOverviewKeepsObservedHPAReplicasOverStaleRecommendationBaseline(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.May, 3, 12, 0, 0, 0, time.UTC)
+	policy := skalev1alpha1.PredictiveScalingPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "checkout-policy", Namespace: "payments", Generation: 7},
+		Spec: skalev1alpha1.PredictiveScalingPolicySpec{
+			TargetRef: skalev1alpha1.TargetReference{Name: "checkout-api"},
+			Mode:      skalev1alpha1.PredictiveScalingModeRecommendationOnly,
+		},
+		Status: skalev1alpha1.PredictiveScalingPolicyStatus{
+			LastRecommendation: &skalev1alpha1.RecommendationSummary{
+				State:            skalev1alpha1.RecommendationStateUnavailable,
+				BaselineReplicas: 2,
+			},
+		},
+	}
+
+	overview := BuildOverview(discovery.Inventory{
+		GeneratedAt: now.Add(-time.Minute),
+		Findings: []discovery.Finding{{
+			Status: discovery.StatusCandidate,
+			Workload: discovery.WorkloadRef{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Namespace:  "payments",
+				Name:       "checkout-api",
+			},
+			HPA: &discovery.HPASummary{Name: "checkout-hpa", CurrentReplicas: 6},
+		}},
+	}, []skalev1alpha1.PredictiveScalingPolicy{policy}, now)
+
+	checkout := findWorkload(t, overview, "payments/checkout-api")
+	if checkout.CurrentReplicas == nil || *checkout.CurrentReplicas != 6 {
+		t.Fatalf("current replicas = %#v, want observed HPA value 6", checkout.CurrentReplicas)
+	}
+	if checkout.RecommendedReplicas != nil {
+		t.Fatalf("unavailable recommendation should not set recommended replicas, got %#v", checkout.RecommendedReplicas)
+	}
+}
+
 func TestRenderHTMLIncludesQualificationConsole(t *testing.T) {
 	t.Parallel()
 

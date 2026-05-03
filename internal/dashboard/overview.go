@@ -213,7 +213,7 @@ func applyPolicy(workload *Workload, policy *skalev1alpha1.PredictiveScalingPoli
 	}
 	if recommendation := evaluated.Status.LastRecommendation; recommendation != nil {
 		workload.RecommendationState = string(recommendation.State)
-		if recommendation.BaselineReplicas > 0 {
+		if workload.CurrentReplicas == nil && recommendation.BaselineReplicas > 0 {
 			workload.CurrentReplicas = int32Ptr(recommendation.BaselineReplicas)
 		}
 		if recommendation.State == skalev1alpha1.RecommendationStateAvailable ||

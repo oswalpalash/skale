@@ -5,9 +5,9 @@ NAMESPACE="${NAMESPACE:-skale-live-demo}"
 SERVICE="${SERVICE:-checkout-api}"
 LOADGEN_NAME="${LOADGEN_NAME:-checkout-loadgen}"
 LOADGEN_IMAGE="${LOADGEN_IMAGE:-curlimages/curl:8.8.0}"
-PHASE_SECONDS="${PHASE_SECONDS:-60}"
-REQUEST_PERIOD_SECONDS="${REQUEST_PERIOD_SECONDS:-2}"
-WORKER_SCHEDULE="${WORKER_SCHEDULE:-0,1,2,4,2,1,0,0}"
+PHASE_SECONDS="${PHASE_SECONDS:-75}"
+REQUEST_PERIOD_SECONDS="${REQUEST_PERIOD_SECONDS:-1}"
+WORKER_SCHEDULE="${WORKER_SCHEDULE:-4,12,24,12,4,0,0}"
 JITTER_SEED="${JITTER_SEED:-137}"
 MAX_EXTRA_WORKERS="${MAX_EXTRA_WORKERS:-2}"
 
@@ -29,7 +29,6 @@ kubectl run "${LOADGEN_NAME}" \
     rand_state="${JITTER_SEED}"
     next_rand() {
       rand_state=$(( (rand_state * 1103515245 + 12345) % 2147483648 ))
-      echo "${rand_state}"
     }
     while true; do
       old_ifs="${IFS}"
@@ -38,8 +37,10 @@ kubectl run "${LOADGEN_NAME}" \
       IFS="${old_ifs}"
       for base_workers in "$@"; do
         phase_index=$(( phase_index + 1 ))
-        worker_rand="$(next_rand)"
-        duration_rand="$(next_rand)"
+        next_rand
+        worker_rand="${rand_state}"
+        next_rand
+        duration_rand="${rand_state}"
         extra_workers=$(( worker_rand % (MAX_EXTRA_WORKERS + 1) ))
         if [ $(( worker_rand % 5 )) -eq 0 ]; then
           extra_workers=0
