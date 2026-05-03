@@ -53,10 +53,25 @@ type LiveEvaluation struct {
 	TelemetryReport   metrics.ReadinessReport
 	TelemetrySummary  explain.TelemetryReadinessSummary
 	ForecastSummary   *explain.ForecastSummary
+	ForecastMetrics   []ForecastMetric
 	Recommendation    *explain.Decision
 	SuppressionReason []explain.SuppressionReason
 	Stage             evaluationStage
 	Message           string
+}
+
+type ForecastMetric struct {
+	Model        string
+	Horizon      string
+	Demand       float64
+	Replicas     int32
+	HasReplicas  bool
+	Confidence   float64
+	Reliability  string
+	Selected     bool
+	ForecastedAt time.Time
+	TargetTime   time.Time
+	Error        string
 }
 
 func (p EvaluationPipeline) Evaluate(
@@ -190,6 +205,7 @@ func (p EvaluationPipeline) Evaluate(
 	result.ForecastSummary = &forecastSummary
 
 	capacityEstimate := controllerCapacityEstimate(snapshot, evaluatedAt, policy.Spec.TargetUtilization)
+	result.ForecastMetrics = forecastMetricsFromResult(forecastResult, snapshot, policy.Spec, evaluatedAt, capacityEstimate)
 	recommendation, err := recommendEngine.Recommend(recommend.Input{
 		Workload:            target.Identity.Resource,
 		WorkloadRef:         target.Identity,
@@ -248,6 +264,64 @@ func controllerReadinessOptions(spec skalev1alpha1.PredictiveScalingPolicySpec, 
 	}
 	options.ExpectedResolution = expectedResolution
 	return options
+}
+
+func forecastMetricsFromResult(result forecast.Result, snapshot metrics.Snapshot, spec skalev1alpha1.PredictiveScalingPolicySpec, evaluatedAt time.Time, capacityEstimate *recommend.CapacityEstimate) []ForecastMetric {
+	candidates := forecastMetricCandidates(result)
+	out := make([]ForecastMetric, 0, len(candidates))
+	targetTime := evaluatedAt.Add(spec.Warmup.EstimatedReadyDuration.Duration)
+	capacity := 0.0
+	if capacityEstimate != nil && capacityEstimate.Estimated && capacityEstimate.PerReplicaCapacity > 0 {
+		capacity = capacityEstimate.PerReplicaCapacity
+	} else {
+		capacity = dashboardPerReplicaCapacity(snapshot, spec, evaluatedAt)
+	}
+	currentReplicasValue, replicasOK := valueAtOrBefore(snapshot.Replicas.Samples, evaluatedAt)
+	currentReplicas := int32(0)
+	if replicasOK && currentReplicasValue >= 1 {
+		currentReplicas = int32(currentReplicasValue)
+	}
+	for _, candidate := range candidates {
+		metric := ForecastMetric{
+			Model:        candidate.Model,
+			Horizon:      "ready",
+			Confidence:   candidate.Confidence,
+			Reliability:  string(candidate.Reliability),
+			Selected:     candidate.Selected,
+			ForecastedAt: evaluatedAt.UTC(),
+			TargetTime:   targetTime.UTC(),
+			Error:        candidate.Error,
+		}
+		point := selectForecastPoint(candidate.Points, targetTime)
+		metric.Demand = point.Value
+		if point.Timestamp.IsZero() {
+			metric.TargetTime = targetTime.UTC()
+		} else {
+			metric.TargetTime = point.Timestamp.UTC()
+		}
+		if capacity > 0 && currentReplicas > 0 && candidate.Error == "" && len(candidate.Points) > 0 {
+			replicas := requiredDashboardReplicas(point.Value, capacity)
+			replicas = boundDashboardReplicas(replicas, spec.MinReplicas, spec.MaxReplicas)
+			replicas = stepBoundDashboardReplicas(replicas, currentReplicas, spec)
+			metric.Replicas = replicas
+			metric.HasReplicas = true
+		}
+		out = append(out, metric)
+	}
+	return out
+}
+
+func forecastMetricCandidates(result forecast.Result) []forecast.CandidateResult {
+	if len(result.Candidates) > 0 {
+		return result.Candidates
+	}
+	return []forecast.CandidateResult{{
+		Model:       result.Model,
+		Points:      result.Points,
+		Confidence:  result.Confidence,
+		Reliability: result.Reliability,
+		Selected:    true,
+	}}
 }
 
 type resolvedSeasonality struct {

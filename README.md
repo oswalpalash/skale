@@ -168,6 +168,17 @@ draws the recommendation path over time. If Prometheus has not scraped enough
 points yet, the dashboard falls back to showing the latest recommendation as a
 single point.
 
+Model prediction history also comes from Prometheus. On each evaluation the
+controller exports:
+
+- `skale_forecast_predicted_replicas`
+- `skale_forecast_predicted_demand`
+- `skale_forecast_confidence`
+
+The dashboard queries `skale_forecast_predicted_replicas{horizon="ready"}` and
+draws historical predicted-replica paths for TimesFM, seasonal naive, and
+Holt-Winters when Prometheus has scraped those samples.
+
 ## Live Controller Telemetry Contract
 
 For continuous live evaluation, configure the controller with:
@@ -228,6 +239,12 @@ Then start the controller with:
 
 The runner installs the upstream TimesFM repository with its `torch` extra and
 keeps model loading out of the controller process.
+
+Skale does not train TimesFM inside the controller. TimesFM is run as inference
+against the latest Prometheus context. Predictions can improve as history,
+seasonality evidence, capacity estimates, and calibration data improve, but
+model weights do not change unless an external offline fine-tuning workflow is
+added later.
 
 ## Safety Behavior
 

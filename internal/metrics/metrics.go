@@ -47,6 +47,17 @@ type RecommendationSample struct {
 	Policy    string
 }
 
+// ForecastPredictionSample is a historical model prediction emitted by the controller.
+type ForecastPredictionSample struct {
+	Timestamp  time.Time
+	Model      string
+	Horizon    string
+	Replicas   float64
+	Policy     string
+	Selected   bool
+	Confidence float64
+}
+
 // SignalSeries is a normalized workload signal with optional label-consistency metadata.
 type SignalSeries struct {
 	Name                    SignalName
@@ -134,6 +145,11 @@ type Provider interface {
 // RecommendationHistoryProvider loads controller-emitted recommendation history for dashboard evidence.
 type RecommendationHistoryProvider interface {
 	LoadRecommendationHistory(ctx context.Context, target Target, window Window) ([]RecommendationSample, error)
+}
+
+// ForecastPredictionHistoryProvider loads controller-emitted forecast prediction history for dashboard evidence.
+type ForecastPredictionHistoryProvider interface {
+	LoadForecastPredictionHistory(ctx context.Context, target Target, window Window, horizon string) ([]ForecastPredictionSample, error)
 }
 
 // WorkloadFetcher loads workload-scoped signals such as demand, replicas, and pod readiness proxies.

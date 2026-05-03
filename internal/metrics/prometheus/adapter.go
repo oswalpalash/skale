@@ -56,6 +56,7 @@ var _ metrics.Provider = (*Adapter)(nil)
 var _ metrics.WorkloadFetcher = (*Adapter)(nil)
 var _ metrics.ClusterFetcher = (*Adapter)(nil)
 var _ metrics.RecommendationHistoryProvider = (*Adapter)(nil)
+var _ metrics.ForecastPredictionHistoryProvider = (*Adapter)(nil)
 
 // LoadWindow fetches the supported workload and cluster signals for the window.
 func (a Adapter) LoadWindow(ctx context.Context, target metrics.Target, window metrics.Window) (metrics.Snapshot, error) {
@@ -176,6 +177,54 @@ func (a Adapter) LoadRecommendationHistory(ctx context.Context, target metrics.T
 	sort.Slice(samples, func(i, j int) bool {
 		if samples[i].Timestamp.Equal(samples[j].Timestamp) {
 			return samples[i].Policy < samples[j].Policy
+		}
+		return samples[i].Timestamp.Before(samples[j].Timestamp)
+	})
+	return samples, nil
+}
+
+// LoadForecastPredictionHistory fetches controller-emitted model prediction samples for dashboard timeline overlays.
+func (a Adapter) LoadForecastPredictionHistory(ctx context.Context, target metrics.Target, window metrics.Window, horizon string) ([]metrics.ForecastPredictionSample, error) {
+	if err := a.validateBase(window); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(horizon) == "" {
+		horizon = "ready"
+	}
+
+	query := fmt.Sprintf(
+		`skale_forecast_predicted_replicas{namespace=%q,workload=%q,horizon=%q}`,
+		target.Namespace,
+		target.Name,
+		horizon,
+	)
+	result, err := a.API.QueryRange(ctx, query, window.Start, window.End, a.queryStep())
+	if err != nil {
+		return nil, err
+	}
+
+	samples := make([]metrics.ForecastPredictionSample, 0)
+	for _, series := range result.Series {
+		model := strings.TrimSpace(series.Labels["model"])
+		policy := strings.TrimSpace(series.Labels["policy"])
+		selected := strings.EqualFold(strings.TrimSpace(series.Labels["selected"]), "true")
+		for _, sample := range series.Samples {
+			samples = append(samples, metrics.ForecastPredictionSample{
+				Timestamp: sample.Timestamp.UTC(),
+				Model:     model,
+				Horizon:   horizon,
+				Replicas:  sample.Value,
+				Policy:    policy,
+				Selected:  selected,
+			})
+		}
+	}
+	sort.Slice(samples, func(i, j int) bool {
+		if samples[i].Timestamp.Equal(samples[j].Timestamp) {
+			if samples[i].Model == samples[j].Model {
+				return samples[i].Policy < samples[j].Policy
+			}
+			return samples[i].Model < samples[j].Model
 		}
 		return samples[i].Timestamp.Before(samples[j].Timestamp)
 	})

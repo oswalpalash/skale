@@ -221,6 +221,22 @@ observed per-replica capacity, `targetUtilization`, min/max replicas, and step
 bounds so operators can compare Skale's predicted replica path against the
 current/HPA replica path.
 
+The controller also exports model prediction metrics on every evaluation:
+
+- `skale_forecast_predicted_replicas{model,horizon="ready",selected}`
+- `skale_forecast_predicted_demand{model,horizon="ready",selected}`
+- `skale_forecast_confidence{model,selected}`
+
+Prometheus scrape history turns those gauges into historical model lines. The
+dashboard reads `skale_forecast_predicted_replicas` for the `ready` horizon and
+merges those historical points with the current forward-looking forecast.
+
+TimesFM is inference-only in this setup. The pretrained weights do not improve
+inside the controller. Forecast quality can still improve as Prometheus retains
+more useful history, seasonality detection gets better evidence, capacity
+estimates stabilize, and future offline calibration/fine-tuning workflows use
+captured prediction-vs-outcome data.
+
 Production packaging is intentionally explicit: use a separate runner service,
 custom image, or controlled runtime path that can load the TimesFM dependencies
 and checkpoint cache.

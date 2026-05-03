@@ -319,6 +319,64 @@ func TestAdapterLoadRecommendationHistory(t *testing.T) {
 	}
 }
 
+func TestAdapterLoadForecastPredictionHistory(t *testing.T) {
+	t.Parallel()
+
+	window := testWindow()
+	api := &fakeAPI{
+		results: map[string]RangeQueryResult{
+			`skale_forecast_predicted_replicas{namespace="payments",workload="checkout",horizon="ready"}`: {
+				Series: []QuerySeries{{
+					Labels: map[string]string{
+						"namespace": "payments",
+						"workload":  "checkout",
+						"policy":    "checkout-policy",
+						"model":     "timesfm",
+						"horizon":   "ready",
+						"selected":  "true",
+					},
+					Samples: []metrics.Sample{
+						{Timestamp: window.Start.Add(2 * time.Minute), Value: 4},
+					},
+				}, {
+					Labels: map[string]string{
+						"namespace": "payments",
+						"workload":  "checkout",
+						"policy":    "checkout-policy",
+						"model":     "seasonal_naive",
+						"horizon":   "ready",
+						"selected":  "false",
+					},
+					Samples: []metrics.Sample{
+						{Timestamp: window.Start.Add(time.Minute), Value: 3},
+					},
+				}},
+			},
+		},
+	}
+	adapter := Adapter{
+		API:  api,
+		Step: 30 * time.Second,
+	}
+
+	history, err := adapter.LoadForecastPredictionHistory(context.Background(), metrics.Target{Namespace: "payments", Name: "checkout"}, window, "ready")
+	if err != nil {
+		t.Fatalf("LoadForecastPredictionHistory() error = %v", err)
+	}
+	if got, want := len(history), 2; got != want {
+		t.Fatalf("history length = %d, want %d: %#v", got, want, history)
+	}
+	if history[0].Model != "seasonal_naive" || history[0].Replicas != 3 || history[0].Selected {
+		t.Fatalf("first history point = %#v, want seasonal false 3", history[0])
+	}
+	if history[1].Model != "timesfm" || history[1].Replicas != 4 || !history[1].Selected {
+		t.Fatalf("last history point = %#v, want timesfm selected 4", history[1])
+	}
+	if !reflect.DeepEqual(api.queries, []string{`skale_forecast_predicted_replicas{namespace="payments",workload="checkout",horizon="ready"}`}) {
+		t.Fatalf("queries = %#v", api.queries)
+	}
+}
+
 type fakeAPI struct {
 	results map[string]RangeQueryResult
 	errs    map[string]error

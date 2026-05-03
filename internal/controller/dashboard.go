@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -223,7 +224,13 @@ func (s *DashboardServer) timeline(ctx context.Context, namespace, name string, 
 		Start: timeline.WindowStart,
 		End:   timeline.WindowEnd,
 	})
-	timeline.Forecasts = s.timelineForecasts(ctx, snapshot, policySpec, evaluatedAtFromTimeline(timeline, now))
+	timeline.Forecasts = mergeForecastLines(
+		s.timelineForecastHistory(ctx, namespace, name, policyName, "ready", metrics.Window{
+			Start: timeline.WindowStart,
+			End:   timeline.WindowEnd,
+		}),
+		s.timelineForecasts(ctx, snapshot, policySpec, evaluatedAtFromTimeline(timeline, now)),
+	)
 	if len(timeline.Forecasts) > 0 {
 		timeline.Source = "prometheus range query with forecast overlays"
 	}
@@ -305,6 +312,86 @@ func (s *DashboardServer) timelineForecasts(ctx context.Context, snapshot metric
 			continue
 		}
 		line.Points = replicaPoints
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func (s *DashboardServer) timelineForecastHistory(ctx context.Context, namespace, name, policyName, horizon string, window metrics.Window) []dashboard.ForecastLine {
+	historyProvider, ok := s.Metrics.(metrics.ForecastPredictionHistoryProvider)
+	if !ok {
+		return nil
+	}
+	history, err := historyProvider.LoadForecastPredictionHistory(ctx, metrics.Target{Namespace: namespace, Name: name}, window, horizon)
+	if err != nil {
+		return nil
+	}
+	byModel := map[string]*dashboard.ForecastLine{}
+	for _, sample := range history {
+		if policyName != "" && sample.Policy != "" && sample.Policy != policyName {
+			continue
+		}
+		line := byModel[sample.Model]
+		if line == nil {
+			line = &dashboard.ForecastLine{
+				Model:    sample.Model,
+				Selected: sample.Selected,
+			}
+			byModel[sample.Model] = line
+		}
+		line.Points = append(line.Points, dashboard.SignalSample{
+			Timestamp: sample.Timestamp,
+			Value:     sample.Replicas,
+		})
+		if sample.Selected {
+			line.Selected = true
+		}
+	}
+	lines := make([]dashboard.ForecastLine, 0, len(byModel))
+	for _, line := range byModel {
+		lines = append(lines, *line)
+	}
+	sort.Slice(lines, func(i, j int) bool {
+		return lines[i].Model < lines[j].Model
+	})
+	return lines
+}
+
+func mergeForecastLines(history, future []dashboard.ForecastLine) []dashboard.ForecastLine {
+	byModel := map[string]*dashboard.ForecastLine{}
+	order := make([]string, 0, len(history)+len(future))
+	for _, line := range append(history, future...) {
+		if strings.TrimSpace(line.Model) == "" {
+			continue
+		}
+		existing := byModel[line.Model]
+		if existing == nil {
+			copyLine := line
+			copyLine.Points = append([]dashboard.SignalSample(nil), line.Points...)
+			byModel[line.Model] = &copyLine
+			order = append(order, line.Model)
+			continue
+		}
+		existing.Points = append(existing.Points, line.Points...)
+		if line.Confidence > 0 {
+			existing.Confidence = line.Confidence
+		}
+		if line.Reliability != "" {
+			existing.Reliability = line.Reliability
+		}
+		if line.Selected {
+			existing.Selected = true
+		}
+		if existing.Error == "" {
+			existing.Error = line.Error
+		}
+	}
+	lines := make([]dashboard.ForecastLine, 0, len(order))
+	for _, model := range order {
+		line := *byModel[model]
+		sort.Slice(line.Points, func(i, j int) bool {
+			return line.Points[i].Timestamp.Before(line.Points[j].Timestamp)
+		})
 		lines = append(lines, line)
 	}
 	return lines

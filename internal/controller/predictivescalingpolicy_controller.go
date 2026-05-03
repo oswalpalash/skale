@@ -114,6 +114,7 @@ func (r *PredictiveScalingPolicyReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{}, err
 	}
 	publishRecommendationMetrics(*desired)
+	publishForecastMetrics(*desired, evaluation)
 
 	logger.Info(
 		"reconciled predictive scaling policy",
