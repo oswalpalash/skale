@@ -16,6 +16,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	skalev1alpha1 "github.com/oswalpalash/skale/api/v1alpha1"
+	"github.com/oswalpalash/skale/internal/discovery"
 	"github.com/oswalpalash/skale/internal/forecast"
 	"github.com/oswalpalash/skale/internal/metrics"
 	"github.com/oswalpalash/skale/internal/recommend"
@@ -36,6 +37,10 @@ type Options struct {
 	ReadinessExpectedResolution time.Duration
 	ForecastSeasonalityOverride time.Duration
 	Now                         func() time.Time
+	DiscoveryDisabled           bool
+	DiscoveryNamespace          string
+	DiscoveryConfigMapName      string
+	DiscoveryInterval           time.Duration
 }
 
 // Run wires the operator manager and the recommendation-only predictive scaling reconciler.
@@ -76,6 +81,25 @@ func Run(ctx context.Context, opts Options) error {
 		},
 	}).SetupWithManager(manager); err != nil {
 		return fmt.Errorf("setup predictive scaling policy reconciler: %w", err)
+	}
+
+	if !opts.DiscoveryDisabled {
+		if err := manager.Add(&ClusterDiscoveryRunner{
+			Client: manager.GetClient(),
+			Scanner: discovery.Scanner{
+				Reader:                       manager.GetClient(),
+				MetricsProvider:              opts.MetricsProvider,
+				Now:                          opts.Now,
+				ExpectedResolution:           opts.ReadinessExpectedResolution,
+				IncludeDeploymentsWithoutHPA: true,
+			},
+			Namespace:       opts.DiscoveryNamespace,
+			ConfigMapName:   opts.DiscoveryConfigMapName,
+			Interval:        opts.DiscoveryInterval,
+			PublishPolicies: true,
+		}); err != nil {
+			return fmt.Errorf("setup cluster discovery runner: %w", err)
+		}
 	}
 
 	if err := manager.AddHealthzCheck("healthz", healthz.Ping); err != nil {

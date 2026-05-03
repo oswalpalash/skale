@@ -13,6 +13,7 @@ platform, not a node autoscaler, and not autonomous control-plane software.
 
 Supported today:
 
+- cluster-wide discovery inventory for Deployments and HPAs
 - `PredictiveScalingPolicy` CRD in `skale.io/v1alpha1`
 - recommendation-only controller status updates
 - replay engine and offline report generation
@@ -40,7 +41,7 @@ Out of scope in v1:
 ## Repository Layout
 
 - [`cmd/controller`](./cmd/controller) runs the
-  recommendation-only controller.
+  recommendation-only controller and discovery publisher.
 - [`cmd/replayctl`](./cmd/replayctl) renders
   offline replay summaries, JSON, markdown, and self-contained HTML.
 - [`config/default`](./config/default) contains a
@@ -68,8 +69,10 @@ Notes:
   [`config/manager/deployment.yaml`](./config/manager/deployment.yaml) to a
   versioned tag such as `ghcr.io/oswalpalash/skale-controller:v0.1.0`
 - the default deployment starts the controller without Prometheus query flags
-- without live telemetry flags, the controller still reconciles policies and
-  writes status, but telemetry readiness will remain `unsupported`
+- without live telemetry flags, the controller still publishes discovery and
+  reconciles policies, but discovery findings will mostly be
+  `needs configuration` and policy telemetry readiness will remain
+  `unsupported`
 - pushes to `main` publish `ghcr.io/oswalpalash/skale-controller:main` and
   `ghcr.io/oswalpalash/skale-controller:sha-<commit>`
 - release tags publish versioned images and refresh `ghcr.io/oswalpalash/skale-controller:latest`
@@ -83,6 +86,42 @@ kind load docker-image ghcr.io/oswalpalash/skale-controller:dev --name skale
 
 See [`docs/LIVE_CONTROLLER_SETUP.md`](./docs/LIVE_CONTROLLER_SETUP.md)
 for the operator-facing setup path and the exact telemetry contract.
+
+## Cluster Discovery
+
+Discovery is enabled by default. The controller scans all namespaces for
+Deployments and HPAs, classifies each workload, and writes the current inventory
+to a ConfigMap:
+
+```bash
+kubectl get configmap -n skale-system skale-discovery-inventory \
+  -o jsonpath='{.data.summary\.txt}'
+
+kubectl get configmap -n skale-system skale-discovery-inventory \
+  -o jsonpath='{.data.inventory\.json}'
+```
+
+Discovery classifications are:
+
+- `candidate`: HPA-managed Deployment with usable telemetry and enough burst or
+  predictability evidence to run replay
+- `needs configuration`: likely relevant, but missing telemetry query mapping,
+  warmup, target utilization, or other policy context
+- `low confidence`: data exists, but forecast or burst evidence is weak
+- `unsupported`: outside the v1 wedge, no HPA, or telemetry is not usable
+
+The same ConfigMap includes `policy-drafts.yaml` for candidate and
+needs-configuration workloads. Those drafts are review material only. Full
+recommendation and replay evaluation still require an explicit
+`PredictiveScalingPolicy`; discovery never treats every workload as if it had a
+safe per-workload policy.
+
+Controller flags:
+
+- `--cluster-discovery=false` disables inventory publishing
+- `--discovery-namespace` changes where the inventory ConfigMap is written
+- `--discovery-configmap` changes the ConfigMap name
+- `--discovery-interval` changes the scan interval
 
 ## Live Controller Telemetry Contract
 

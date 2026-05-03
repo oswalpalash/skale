@@ -20,12 +20,20 @@ func main() {
 	var enableLeaderElection bool
 	var demoReplayInput string
 	var showVersion bool
+	var discoveryEnabled bool
+	var discoveryNamespace string
+	var discoveryConfigMapName string
+	var discoveryInterval time.Duration
 	var promConfig prometheusRuntimeConfig
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.BoolVar(&showVersion, "version", false, "print the controller version")
+	flag.BoolVar(&discoveryEnabled, "cluster-discovery", true, "publish cluster-wide discovery inventory for HPA-managed Deployments")
+	flag.StringVar(&discoveryNamespace, "discovery-namespace", "skale-system", "namespace for the cluster discovery inventory ConfigMap")
+	flag.StringVar(&discoveryConfigMapName, "discovery-configmap", "skale-discovery-inventory", "name of the cluster discovery inventory ConfigMap")
+	flag.DurationVar(&discoveryInterval, "discovery-interval", 5*time.Minute, "interval between cluster discovery inventory scans")
 	flag.StringVar(
 		&demoReplayInput,
 		"demo-replay-input",
@@ -93,6 +101,10 @@ func main() {
 			ReadinessExpectedResolution: readinessExpectedResolution,
 			ForecastSeasonalityOverride: forecastSeasonalityOverride,
 			Now:                         evaluationNow,
+			DiscoveryDisabled:           !discoveryEnabled,
+			DiscoveryNamespace:          discoveryNamespace,
+			DiscoveryConfigMapName:      discoveryConfigMapName,
+			DiscoveryInterval:           discoveryInterval,
 		},
 	); err != nil {
 		fmt.Fprintf(os.Stderr, "controller exited with error: %v\n", err)

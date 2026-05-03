@@ -34,6 +34,17 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
       - pods
       - nodes
       - events
