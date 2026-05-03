@@ -666,8 +666,8 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     }
     .replica-chart {
       width: 100%;
-      height: min(42vh, 380px);
-      min-height: 300px;
+      height: clamp(340px, 48vh, 520px);
+      min-height: 340px;
       display: block;
       margin: 6px 0 14px;
     }
@@ -848,7 +848,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       .timeline-bar { align-items: flex-start; flex-direction: column; }
       .timeline-controls { width: 100%; justify-content: flex-start; }
       .timeline-window { width: 100%; grid-template-columns: repeat(4, 1fr); grid-auto-flow: row; }
-      .replica-chart { height: 260px; min-height: 260px; }
+      .replica-chart { height: 300px; min-height: 300px; }
     }
   </style>
 </head>
@@ -932,6 +932,14 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     let visibleForecastModels = restoreForecastModels();
     const lookbackOptions = ['30m', '1h', '3h', '6h'];
     const timelines = {};
+    const chart = Object.freeze({
+      width: 780,
+      height: 300,
+      left: 70,
+      right: 730,
+      top: 42,
+      bottom: 230
+    });
 
     function restoreForecastModels() {
       try {
@@ -1207,19 +1215,21 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      const recommendedLine = recommendedPath ? '<path class="recommended-line" d="' + recommendedPath + '"></path>' : '';
 	      const demandLine = demandPath ? '<path class="demand-line" d="' + demandPath + '"></path>' : '';
 	      const pressureShape = pressureArea ? '<path class="pressure-area" d="' + pressureArea + '"></path>' : '';
-	      const recommendedLegend = !showRecommendations ? '<text x="346" y="28">recommendation hidden</text>' : (hasRecommendation ? '<circle class="point-recommended" cx="370" cy="24" r="5"></circle><text x="382" y="28">recommended</text>' : '<text x="346" y="28">no recommendation yet</text>');
+	      const recommendedLegend = !showRecommendations ? '<text x="500" y="28">recommendation hidden</text>' : (hasRecommendation ? '<circle class="point-recommended" cx="500" cy="24" r="5"></circle><text x="512" y="28">recommended</text>' : '<text x="500" y="28">no recommendation yet</text>');
 	      const sourceLabel = timeline && history.length > 1 ? 'Prometheus history' : 'current sample';
 	      const startLabel = history.length > 1 ? formatAxisAge(history[0].t, latest.t) : '';
-	      return '<svg class="replica-chart" viewBox="0 0 560 190" role="img" aria-label="Current and recommended replica timeline">' +
-	        '<line class="grid" x1="70" y1="54" x2="526" y2="54"></line>' +
-	        '<line class="grid" x1="70" y1="96" x2="526" y2="96"></line>' +
-	        '<line class="axis" x1="70" y1="138" x2="526" y2="138"></line>' +
-	        '<line class="axis" x1="70" y1="34" x2="70" y2="138"></line>' +
-	        '<text x="68" y="158">' + escapeHTML(startLabel) + '</text>' +
-	        '<text x="506" y="158">now</text>' +
-	        '<text x="30" y="140">0</text>' +
-	        '<text x="24" y="42">' + maxValue + '</text>' +
-	        '<circle class="point-current" cx="214" cy="24" r="5"></circle><text x="226" y="28">current: ' + (latestCurrent ?? 'unknown') + '</text>' +
+	      const upperGridY = chartYForFraction(2 / 3);
+	      const lowerGridY = chartYForFraction(1 / 3);
+	      return '<svg class="replica-chart" viewBox="0 0 ' + chart.width + ' ' + chart.height + '" role="img" aria-label="Current and recommended replica timeline">' +
+	        '<line class="grid" x1="' + chart.left + '" y1="' + upperGridY + '" x2="' + chart.right + '" y2="' + upperGridY + '"></line>' +
+	        '<line class="grid" x1="' + chart.left + '" y1="' + lowerGridY + '" x2="' + chart.right + '" y2="' + lowerGridY + '"></line>' +
+	        '<line class="axis" x1="' + chart.left + '" y1="' + chart.bottom + '" x2="' + chart.right + '" y2="' + chart.bottom + '"></line>' +
+	        '<line class="axis" x1="' + chart.left + '" y1="' + chart.top + '" x2="' + chart.left + '" y2="' + chart.bottom + '"></line>' +
+	        '<text x="' + (chart.left - 2) + '" y="' + (chart.bottom + 28) + '">' + escapeHTML(startLabel) + '</text>' +
+	        '<text x="' + (chart.right - 24) + '" y="' + (chart.bottom + 28) + '">now</text>' +
+	        '<text x="30" y="' + (chart.bottom + 2) + '">0</text>' +
+	        '<text x="24" y="' + (chart.top + 2) + '">' + maxValue + '</text>' +
+	        '<circle class="point-current" cx="260" cy="24" r="5"></circle><text x="272" y="28">current: ' + (latestCurrent ?? 'unknown') + '</text>' +
 	        recommendedLegend +
 	        pressureShape +
 	        demandLine +
@@ -1228,8 +1238,8 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        recommendedLine +
 	        currentPoints +
 	        recommendedPoints +
-	        '<text x="70" y="180">' + escapeHTML(sourceLabel) + '</text>' +
-	        '<text x="394" y="180">' + escapeHTML(recommendedLabel) + '</text>' +
+	        '<text x="' + chart.left + '" y="' + (chart.height - 14) + '">' + escapeHTML(sourceLabel) + '</text>' +
+	        '<text x="' + (chart.right - 170) + '" y="' + (chart.height - 14) + '">' + escapeHTML(recommendedLabel) + '</text>' +
 	      '</svg>';
 	    }
 
@@ -1386,7 +1396,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      const first = points[0];
 	      const last = points[points.length - 1];
 	      return points.map((point, index) => (index === 0 ? 'M' : 'L') + point.x + ' ' + point.y).join(' ') +
-	        ' L' + last.x + ' 138 L' + first.x + ' 138 Z';
+	        ' L' + last.x + ' ' + chart.bottom + ' L' + first.x + ' ' + chart.bottom + ' Z';
 	    }
 
 	    function normalizedSignalCoordinates(samples, extent, clampToOne) {
@@ -1400,8 +1410,8 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        if (!Number.isFinite(t) || !Number.isFinite(value)) return null;
 	        const normalized = clampToOne ? Math.max(0, Math.min(1, value)) : value / maxValue;
 	        return {
-	          x: Math.round(70 + ((t - extent.minT) / extent.span) * 456),
-	          y: Math.round(138 - normalized * 104)
+	          x: chartXForTimestamp(t, extent),
+	          y: chartYForFraction(normalized)
 	        };
 	      }).filter(Boolean);
 	    }
@@ -1539,7 +1549,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      if (points.length === 1) {
 	        if (!extendSingle) return '';
 	        const point = points[0];
-	        return 'M' + point.x + ' ' + point.y + ' L526 ' + point.y;
+	        return 'M' + point.x + ' ' + point.y + ' L' + chart.right + ' ' + point.y;
 	      }
 	      return points.map((point, index) => (index === 0 ? 'M' : 'L') + point.x + ' ' + point.y).join(' ');
 	    }
@@ -1572,10 +1582,22 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      const minT = extent ? extent.minT : Math.min(...samples.map(sample => Number(sample.t)));
 	      const span = extent ? extent.span : Math.max(1, Math.max(...samples.map(sample => Number(sample.t))) - minT);
 	      return samples.map(sample => {
-	        const x = Math.round(70 + ((Number(sample.t) - minT) / span) * 456);
-	        const y = Math.round(138 - (Number(sample[field]) / maxValue) * 104);
+	        const x = chartXForTimestamp(Number(sample.t), { minT, span });
+	        const y = chartYForValue(Number(sample[field]), maxValue);
 	        return { x, y };
 	      });
+	    }
+
+	    function chartXForTimestamp(timestamp, extent) {
+	      return Math.round(chart.left + ((timestamp - extent.minT) / extent.span) * (chart.right - chart.left));
+	    }
+
+	    function chartYForValue(value, maxValue) {
+	      return chartYForFraction(maxValue > 0 ? value / maxValue : 0);
+	    }
+
+	    function chartYForFraction(fraction) {
+	      return Math.round(chart.bottom - fraction * (chart.bottom - chart.top));
 	    }
 
 	    function evidenceMessage(workload) {
