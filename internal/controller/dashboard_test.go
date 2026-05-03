@@ -351,7 +351,10 @@ func TestDashboardServerServesHTML(t *testing.T) {
 	for _, expected := range []string{
 		"Workload Qualification Console",
 		"Namespaces",
+		"Namespace workload tree",
+		"rail-toggle",
 		"Replica timeline",
+		"recommendation-line-toggle",
 		"timeline-window",
 		"lookbackOptions = ['30m', '1h', '3h', '6h']",
 		"Demand and resource pressure",

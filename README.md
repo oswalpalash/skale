@@ -141,12 +141,14 @@ Controller flags:
 
 The read-only dashboard is an operator evidence surface, not an actuation
 surface. It starts at the namespace list, groups namespaces by whether they
-contain policy-backed or candidate workloads, and then drills into workload
-telemetry and recommendation state.
+contain policy-backed or candidate workloads, and exposes workload selection as
+a collapsible namespace tree in the left rail. The workload detail, timeline,
+and evidence stay in the main content area.
 
 The workload timeline defaults to the last `30m`. Operators can widen the view
-to `1h`, `3h`, or `6h`; the selected namespace, workload, and time window are
-kept in the URL hash so refreshes preserve context.
+to `1h`, `3h`, or `6h`, and can hide or show the recommendation overlay with a
+small graph checkbox. The selected namespace, workload, and time window are kept
+in the URL hash so refreshes preserve context.
 
 Recommendation history comes from Prometheus, not from the CRD. The CRD keeps
 only `.status.lastRecommendation`, which is intentionally the latest decision

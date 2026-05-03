@@ -300,6 +300,10 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       display: grid;
       grid-template-columns: 360px minmax(0, 1fr);
       min-height: 0;
+      transition: grid-template-columns 180ms ease;
+    }
+    .workspace.rail-collapsed {
+      grid-template-columns: 58px minmax(0, 1fr);
     }
     .rail {
       background: #18211e;
@@ -307,6 +311,10 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       border-right: 1px solid rgba(245, 247, 246, 0.14);
       padding: 22px;
       overflow: auto;
+    }
+    .workspace.rail-collapsed .rail {
+      padding: 14px 9px;
+      overflow: hidden;
     }
     .rail-title {
       display: flex;
@@ -320,6 +328,25 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       font-size: 15px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
+    }
+    .rail-toggle {
+      border: 1px solid rgba(245, 247, 246, 0.2);
+      background: rgba(255,255,255,0.05);
+      color: #f5f7f6;
+      min-width: 32px;
+      min-height: 32px;
+      cursor: pointer;
+      font-weight: 900;
+    }
+    .rail-toggle:hover { background: rgba(255,255,255,0.12); }
+    .workspace.rail-collapsed .rail-title {
+      justify-content: center;
+      margin-bottom: 0;
+    }
+    .workspace.rail-collapsed .rail-title h2,
+    .workspace.rail-collapsed .rail-title .count-pill,
+    .workspace.rail-collapsed .namespace-list {
+      display: none;
     }
     .count-pill {
       border: 1px solid rgba(245, 247, 246, 0.24);
@@ -360,26 +387,37 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     }
     .namespace-card {
       width: 100%;
-      text-align: left;
       border: 1px solid rgba(245, 247, 246, 0.16);
       background: #202c28;
       color: #f5f7f6;
-      padding: 14px;
-      cursor: pointer;
-      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+      transition: border-color 140ms ease, background 140ms ease;
     }
     .namespace-card:hover,
     .namespace-card.active {
-      transform: translateX(3px);
       border-color: #89d8ca;
       background: #263631;
     }
-    .ns-top {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
+    .namespace-head {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 16px minmax(0, 1fr) auto;
+      gap: 10px;
       align-items: start;
+      padding: 13px;
+      cursor: pointer;
     }
+    .tree-caret {
+      color: #89d8ca;
+      font-size: 16px;
+      line-height: 1.2;
+      transform: rotate(-90deg);
+      transition: transform 140ms ease;
+    }
+    .namespace-card.active .tree-caret { transform: rotate(0deg); }
     .ns-name {
       font-weight: 900;
       font-size: 17px;
@@ -414,6 +452,52 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       color: #aebbb4;
       font-size: 10px;
       text-transform: uppercase;
+    }
+    .namespace-workloads {
+      display: none;
+      border-top: 1px solid rgba(245, 247, 246, 0.12);
+      padding: 6px 8px 10px 28px;
+      gap: 4px;
+    }
+    .namespace-card.active .namespace-workloads {
+      display: grid;
+    }
+    .tree-workload {
+      border: 0;
+      border-left: 2px solid rgba(245, 247, 246, 0.15);
+      background: transparent;
+      color: #dbe5df;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      text-align: left;
+      padding: 8px 8px 8px 11px;
+    }
+    .tree-workload:hover,
+    .tree-workload.active {
+      border-left-color: #35c5a7;
+      background: rgba(255,255,255,0.07);
+      color: #ffffff;
+    }
+    .tree-workload b {
+      display: block;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .tree-workload small {
+      display: block;
+      margin-top: 2px;
+      color: #aebbb4;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+    .tree-state {
+      align-self: start;
+      color: #aebbb4;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
     }
     .stage {
       background: var(--panel);
@@ -477,7 +561,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     }
     .layout {
       display: grid;
-      grid-template-columns: minmax(340px, 0.75fr) minmax(0, 1.25fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 18px;
       align-items: start;
     }
@@ -500,30 +584,6 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       font-size: 13px;
       text-transform: uppercase;
       letter-spacing: 0.07em;
-    }
-    .workload-list {
-      display: grid;
-    }
-    .workload-row {
-      width: 100%;
-      text-align: left;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
-      border: 0;
-      border-bottom: 1px solid var(--line);
-      background: transparent;
-      padding: 14px 16px;
-      cursor: pointer;
-    }
-    .workload-row:hover,
-    .workload-row.active {
-      background: #edf3f0;
-    }
-    .workload-row:last-child { border-bottom: 0; }
-    .w-name {
-      font-weight: 900;
-      overflow-wrap: anywhere;
     }
     .w-meta {
       margin-top: 4px;
@@ -683,6 +743,32 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       background: #18211e;
       color: #f5f7f6;
     }
+    .timeline-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+    .line-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      background: #f8faf9;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      user-select: none;
+    }
+    .line-toggle input {
+      width: 13px;
+      height: 13px;
+      accent-color: var(--amber);
+    }
     .evidence-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -754,6 +840,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       .score { grid-template-columns: 1fr 1fr; }
       .evidence-strip { grid-template-columns: 1fr; }
       .timeline-bar { align-items: flex-start; flex-direction: column; }
+      .timeline-controls { width: 100%; justify-content: flex-start; }
       .timeline-window { width: 100%; grid-template-columns: repeat(4, 1fr); grid-auto-flow: row; }
     }
   </style>
@@ -771,34 +858,15 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       </div>
     </section>
 
-    <section class="workspace">
+    <section class="workspace" id="workspace">
       <aside class="rail">
         <div class="rail-title">
           <h2>Namespaces</h2>
           <span class="count-pill">{{len .Namespaces}}</span>
+          <button class="rail-toggle" id="rail-toggle" type="button" aria-label="Collapse navigation" title="Collapse navigation">&lt;</button>
         </div>
-        <div class="namespace-list" id="namespace-list">
-          {{range .NamespaceGroups}}
-          <section class="namespace-group">
-            <div class="namespace-group-title {{.ClassToken}}">{{.Label}}</div>
-            <div class="namespace-group-list">
-              {{range .Namespaces}}
-              <button class="namespace-card" data-namespace="{{.Name}}">
-                <div class="ns-top">
-                  <div class="ns-name">{{.Name}}</div>
-                  <div class="ns-tier {{classToken .Tier}}">{{.Tier}}</div>
-                </div>
-                <div class="ns-stats">
-                  <div class="ns-stat"><b>{{.Good}}</b><span>good</span></div>
-                  <div class="ns-stat"><b>{{.NeedsConfiguration}}</b><span>config</span></div>
-                  <div class="ns-stat"><b>{{.NeedsScalingContract}}</b><span>contract</span></div>
-                  <div class="ns-stat"><b>{{.Unsupported}}</b><span>blocked</span></div>
-                </div>
-              </button>
-              {{end}}
-            </div>
-          </section>
-          {{end}}
+        <div class="namespace-list" id="namespace-list" aria-label="Namespace workload tree">
+          <div class="empty-state">Loading workload tree.</div>
         </div>
       </aside>
 
@@ -819,16 +887,6 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
           </section>
 
           <section class="layout">
-            <section class="panel">
-              <div class="panel-head">
-                <h3 id="workload-panel-title">Workloads</h3>
-                <span class="count-pill" id="workload-count">0</span>
-              </div>
-              <div class="workload-list" id="workload-list">
-                <div class="empty-state">Select namespace to inspect workloads.</div>
-              </div>
-            </section>
-
             <section class="panel detail">
               <div class="panel-head">
                 <h3>Workload detail</h3>
@@ -847,10 +905,9 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
   <script id="overview-data" type="application/json">{{.OverviewJSON}}</script>
   <script>
     let overview = JSON.parse(document.getElementById('overview-data').textContent);
+    const workspace = document.getElementById('workspace');
+    const railToggle = document.getElementById('rail-toggle');
     const nsList = document.getElementById('namespace-list');
-    const workloadList = document.getElementById('workload-list');
-    const workloadCount = document.getElementById('workload-count');
-    const workloadTitle = document.getElementById('workload-panel-title');
     const detailBody = document.getElementById('detail-body');
     const detailState = document.getElementById('detail-state');
     const heroTitle = document.getElementById('hero-title');
@@ -864,6 +921,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     let selectedNamespace = '';
     let selectedWorkloadId = '';
     let selectedLookback = '30m';
+    let showRecommendations = localStorage.getItem('skale-dashboard-show-recommendations') !== 'false';
     const lookbackOptions = ['30m', '1h', '3h', '6h'];
     const timelines = {};
 
@@ -874,6 +932,39 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
         acc[namespace].push(workload);
         return acc;
       }, {});
+    }
+
+    function namespaceSummary(namespace, workloads) {
+      const good = workloads.filter(w => w.qualification === 'policy-backed' || w.qualification === 'candidate').length;
+      const needsConfiguration = workloads.filter(w => w.qualification === 'needs configuration').length;
+      const needsScalingContract = workloads.filter(w => w.qualification === 'needs scaling contract').length;
+      const unsupported = workloads.length - good - needsConfiguration - needsScalingContract;
+      let tier = 'unsupported';
+      if (good > 0) tier = 'good fit';
+      else if (needsConfiguration > 0) tier = 'needs config';
+      else if (needsScalingContract > 0) tier = 'needs contract';
+      return { namespace, workloads, total: workloads.length, good, needsConfiguration, needsScalingContract, unsupported, tier };
+    }
+
+    function namespaceRank(summary) {
+      const rank = { 'good fit': 0, 'needs config': 1, 'needs contract': 2, 'unsupported': 3 };
+      return rank[summary.tier] ?? 9;
+    }
+
+    function groupedNamespaceSummaries() {
+      const summaries = Object.entries(byNamespace).map(([namespace, workloads]) =>
+        namespaceSummary(namespace, [...workloads].sort(workloadSort))
+      ).sort((a, b) => namespaceRank(a) - namespaceRank(b) || a.namespace.localeCompare(b.namespace));
+      const groups = [
+        { tier: 'good fit', label: 'Good fit' },
+        { tier: 'needs config', label: 'Needs configuration' },
+        { tier: 'needs contract', label: 'Needs scaling contract' },
+        { tier: 'unsupported', label: 'Outside v1 wedge' }
+      ];
+      return groups.map(group => ({
+        ...group,
+        namespaces: summaries.filter(summary => summary.tier === group.tier)
+      })).filter(group => group.namespaces.length > 0);
     }
 
     function tone(value) {
@@ -933,54 +1024,108 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 
     function selectNamespace(namespace, preferredWorkloadId) {
       selectedNamespace = namespace;
-      [...nsList.querySelectorAll('.namespace-card')].forEach(card => {
-        card.classList.toggle('active', card.dataset.namespace === namespace);
-	      });
-	      const workloads = [...(byNamespace[namespace] || [])].sort(workloadSort);
-	      workloadTitle.textContent = namespace + ' workloads';
-	      workloadCount.textContent = workloads.length;
-	      const good = workloads.filter(w => w.qualification === 'policy-backed' || w.qualification === 'candidate').length;
-	      const setup = workloads.filter(w => w.qualification === 'needs configuration' || w.qualification === 'needs scaling contract').length;
-	      const policyBacked = workloads.filter(w => w.qualification === 'policy-backed').length;
-	      const candidate = workloads.filter(w => w.qualification === 'candidate').length;
-	      const needsConfig = workloads.filter(w => w.qualification === 'needs configuration').length;
-	      const needsContract = workloads.filter(w => w.qualification === 'needs scaling contract').length;
-	      heroTitle.textContent = namespace;
-	      heroCopy.textContent = good + ' good-fit workload(s), ' + setup + ' setup-needed workload(s), ' + (workloads.length - good - setup) + ' unsupported workload(s).';
-	      scorePolicy.textContent = policyBacked;
-	      scoreCandidate.textContent = candidate;
-	      scoreConfig.textContent = needsConfig;
-	      scoreContract.textContent = needsContract;
-	      workloadList.innerHTML = workloads.map(w => workloadRowHTML(w)).join('');
-      workloadList.querySelectorAll('.workload-row').forEach(button => {
-        button.addEventListener('click', () => selectWorkload(button.dataset.workloadId, true));
-      });
-	      if (workloads.length > 0) {
-	        const selected = workloads.find(workload => workload.id === preferredWorkloadId) || workloads[0];
-	        selectWorkload(selected.id, true);
-	      }
+      const workloads = [...(byNamespace[namespace] || [])].sort(workloadSort);
+      const summary = namespaceSummary(namespace, workloads);
+      const setup = summary.needsConfiguration + summary.needsScalingContract;
+      const policyBacked = workloads.filter(w => w.qualification === 'policy-backed').length;
+      const candidate = workloads.filter(w => w.qualification === 'candidate').length;
+      heroTitle.textContent = namespace;
+      heroCopy.textContent = summary.good + ' good-fit workload(s), ' + setup + ' setup-needed workload(s), ' + summary.unsupported + ' unsupported workload(s).';
+      scorePolicy.textContent = policyBacked;
+      scoreCandidate.textContent = candidate;
+      scoreConfig.textContent = summary.needsConfiguration;
+      scoreContract.textContent = summary.needsScalingContract;
+      syncSidebarSelection();
+      if (workloads.length > 0) {
+        const selected = workloads.find(workload => workload.id === preferredWorkloadId) || workloads[0];
+        selectWorkload(selected.id, true);
+      } else {
+        selectedWorkloadId = '';
+        detailState.textContent = 'none';
+        detailBody.innerHTML = '<div class="empty-state">No discovered workloads in this namespace.</div>';
+      }
     }
 
-	    function workloadRowHTML(workload) {
-	      return '<button class="workload-row" data-workload-id="' + escapeHTML(workload.id) + '">' +
-	        '<div>' +
-	          '<div class="w-name">' + escapeHTML(workload.name) + '</div>' +
-	          '<div class="w-meta">' + escapeHTML(workload.apiVersion || '') + ' ' + escapeHTML(workload.kind || '') + (workload.hpaName ? ' · HPA ' + escapeHTML(workload.hpaName) : '') + '</div>' +
-	        '</div>' +
-	        '<span class="badge ' + tone(workload.qualification) + '">' + escapeHTML(workload.qualification) + '</span>' +
-	      '</button>';
-	    }
+    function renderNamespaceTree() {
+      const groups = groupedNamespaceSummaries();
+      if (!groups.length) {
+        nsList.innerHTML = '<div class="empty-state">No workloads discovered yet.</div>';
+        return;
+      }
+      nsList.innerHTML = groups.map(group =>
+        '<section class="namespace-group">' +
+          '<div class="namespace-group-title ' + tone(group.tier) + '">' + escapeHTML(group.label) + '</div>' +
+          '<div class="namespace-group-list">' +
+            group.namespaces.map(namespaceTreeHTML).join('') +
+          '</div>' +
+        '</section>'
+      ).join('');
+      bindNamespaceTree();
+      syncSidebarSelection();
+    }
+
+    function namespaceTreeHTML(summary) {
+      return '<div class="namespace-card" data-namespace="' + escapeHTML(summary.namespace) + '">' +
+        '<button class="namespace-head" type="button" data-namespace="' + escapeHTML(summary.namespace) + '">' +
+          '<span class="tree-caret">v</span>' +
+          '<div>' +
+            '<div class="ns-name">' + escapeHTML(summary.namespace) + '</div>' +
+            '<div class="ns-stats">' +
+              '<div class="ns-stat"><b>' + summary.good + '</b><span>good</span></div>' +
+              '<div class="ns-stat"><b>' + summary.needsConfiguration + '</b><span>config</span></div>' +
+              '<div class="ns-stat"><b>' + summary.needsScalingContract + '</b><span>contract</span></div>' +
+              '<div class="ns-stat"><b>' + Math.max(0, summary.unsupported) + '</b><span>blocked</span></div>' +
+            '</div>' +
+          '</div>' +
+          '<span class="ns-tier ' + tone(summary.tier) + '">' + escapeHTML(summary.tier) + '</span>' +
+        '</button>' +
+        '<div class="namespace-workloads">' +
+          summary.workloads.map(workloadTreeRowHTML).join('') +
+        '</div>' +
+      '</div>';
+    }
+
+    function workloadTreeRowHTML(workload) {
+      const meta = (workload.kind || 'Workload') + (workload.hpaName ? ' · HPA ' + workload.hpaName : '');
+      return '<button class="tree-workload" type="button" data-workload-id="' + escapeHTML(workload.id) + '">' +
+        '<span><b>' + escapeHTML(workload.name) + '</b><small>' + escapeHTML(meta) + '</small></span>' +
+        '<span class="tree-state">' + escapeHTML(workload.currentReplicas == null ? '' : String(workload.currentReplicas)) + '</span>' +
+      '</button>';
+    }
+
+    function bindNamespaceTree() {
+      nsList.querySelectorAll('.namespace-head').forEach(button => {
+        button.addEventListener('click', () => selectNamespace(button.dataset.namespace, button.dataset.namespace === selectedNamespace ? selectedWorkloadId : ''));
+      });
+      nsList.querySelectorAll('.tree-workload').forEach(button => {
+        button.addEventListener('click', () => {
+          const workload = overview.workloads.find(item => item.id === button.dataset.workloadId);
+          if (workload && workload.namespace !== selectedNamespace) {
+            selectNamespace(workload.namespace, workload.id);
+          } else {
+            selectWorkload(button.dataset.workloadId, true);
+          }
+        });
+      });
+    }
+
+    function syncSidebarSelection() {
+      nsList.querySelectorAll('.namespace-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.namespace === selectedNamespace);
+      });
+      nsList.querySelectorAll('.tree-workload').forEach(row => {
+        row.classList.toggle('active', row.dataset.workloadId === selectedWorkloadId);
+      });
+    }
 
     function selectWorkload(id, persist) {
       selectedWorkloadId = id;
-      [...workloadList.querySelectorAll('.workload-row')].forEach(row => {
-        row.classList.toggle('active', row.dataset.workloadId === id);
-      });
+      syncSidebarSelection();
       const workload = overview.workloads.find(item => item.id === id);
       if (!workload) return;
       detailState.textContent = workload.qualification;
       detailBody.innerHTML = workloadDetailHTML(workload);
-      bindTimelineWindowControls();
+      bindTimelineControls();
       fetchTimeline(workload);
 	      if (persist) persistSelection(workload);
     }
@@ -1009,7 +1154,10 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        '<div class="evidence-card">' +
 	          '<div class="timeline-bar">' +
 	            '<div class="section-title"><span>Replica timeline</span><span>' + escapeHTML(timelineState) + '</span></div>' +
-	            timelineWindowHTML() +
+	            '<div class="timeline-controls">' +
+	              recommendationToggleHTML() +
+	              timelineWindowHTML() +
+	            '</div>' +
 	          '</div>' +
 	          graphLegendHTML(timelines[workload.id]) +
 	          replicaGraphHTML(workload, timelines[workload.id]) +
@@ -1024,8 +1172,8 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 
 	    function replicaGraphHTML(workload, timeline) {
 	      const history = timelineHistory(workload, timeline);
-	      const hasRecommendation = history.some(sample => sample.recommended != null);
-	      const values = history.flatMap(sample => [sample.current, sample.recommended]).filter(value => value != null);
+	      const hasRecommendation = showRecommendations && history.some(sample => sample.recommended != null);
+	      const values = history.flatMap(sample => showRecommendations ? [sample.current, sample.recommended] : [sample.current]).filter(value => value != null);
 	      const maxValue = Math.max(1, ...values, 6);
 	      const signalExtent = timelineExtent(history, timeline);
 	      const currentPath = timelinePath(history, 'current', maxValue, signalExtent, true);
@@ -1037,11 +1185,11 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      const latest = history[history.length - 1] || {};
 	      const latestCurrent = latestFieldValue(history, 'current');
 	      const latestRecommended = latestFieldValue(history, 'recommended');
-	      const recommendedLabel = latestRecommended == null ? 'recommended: none' : 'recommended: ' + latestRecommended;
+	      const recommendedLabel = !showRecommendations ? 'recommended: hidden' : (latestRecommended == null ? 'recommended: none' : 'recommended: ' + latestRecommended);
 	      const recommendedLine = recommendedPath ? '<path class="recommended-line" d="' + recommendedPath + '"></path>' : '';
 	      const demandLine = demandPath ? '<path class="demand-line" d="' + demandPath + '"></path>' : '';
 	      const pressureShape = pressureArea ? '<path class="pressure-area" d="' + pressureArea + '"></path>' : '';
-	      const recommendedLegend = hasRecommendation ? '<circle class="point-recommended" cx="370" cy="24" r="5"></circle><text x="382" y="28">recommended</text>' : '<text x="346" y="28">no recommendation yet</text>';
+	      const recommendedLegend = !showRecommendations ? '<text x="346" y="28">recommendation hidden</text>' : (hasRecommendation ? '<circle class="point-recommended" cx="370" cy="24" r="5"></circle><text x="382" y="28">recommended</text>' : '<text x="346" y="28">no recommendation yet</text>');
 	      const sourceLabel = timeline && history.length > 1 ? 'Prometheus history' : 'current sample';
 	      const startLabel = history.length > 1 ? formatAxisAge(history[0].t, latest.t) : '';
 	      return '<svg class="replica-chart" viewBox="0 0 560 190" role="img" aria-label="Current and recommended replica timeline">' +
@@ -1081,6 +1229,10 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        ).join('') +
 	      '</div>';
 	    }
+
+    function recommendationToggleHTML() {
+      return '<label class="line-toggle"><input type="checkbox" class="recommendation-line-toggle" ' + (showRecommendations ? 'checked' : '') + '> recommendation</label>';
+    }
 
 	    function pressureSummaryHTML(timeline) {
 	      const demand = timeline && Array.isArray(timeline.demand) ? timeline.demand : [];
@@ -1263,12 +1415,31 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        timelines[workload.id] = await response.json();
 	        if (selectedWorkloadId === workload.id) {
 	          detailBody.innerHTML = workloadDetailHTML(workload);
-	          bindTimelineWindowControls();
+	          bindTimelineControls();
 	        }
 	      } catch {
 	        return;
 	      }
 	    }
+
+    function bindTimelineControls() {
+      bindRecommendationToggle();
+      bindTimelineWindowControls();
+    }
+
+    function bindRecommendationToggle() {
+      detailBody.querySelectorAll('.recommendation-line-toggle').forEach(input => {
+        input.addEventListener('change', () => {
+          showRecommendations = input.checked;
+          localStorage.setItem('skale-dashboard-show-recommendations', showRecommendations ? 'true' : 'false');
+          const workload = overview.workloads.find(item => item.id === selectedWorkloadId);
+          if (workload) {
+            detailBody.innerHTML = workloadDetailHTML(workload);
+            bindTimelineControls();
+          }
+        });
+      });
+    }
 
 	    function bindTimelineWindowControls() {
 	      detailBody.querySelectorAll('.timeline-window button').forEach(button => {
@@ -1280,7 +1451,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	          if (workload) {
 	            timelines[workload.id] = null;
 	            detailBody.innerHTML = workloadDetailHTML(workload);
-	            bindTimelineWindowControls();
+	            bindTimelineControls();
 	            fetchTimeline(workload);
 	            persistSelection(workload);
 	          }
@@ -1384,15 +1555,32 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      }
 	    }
 
+    function setRailCollapsed(collapsed) {
+      workspace.classList.toggle('rail-collapsed', collapsed);
+      railToggle.textContent = collapsed ? '>' : '<';
+      railToggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
+      railToggle.setAttribute('title', collapsed ? 'Expand navigation' : 'Collapse navigation');
+      localStorage.setItem('skale-dashboard-rail-collapsed', collapsed ? 'true' : 'false');
+    }
+
+    function restoreRailState() {
+      setRailCollapsed(localStorage.getItem('skale-dashboard-rail-collapsed') === 'true');
+    }
+
 	    async function refreshOverview() {
-	      if (!selectedNamespace) return;
 	      try {
 	        const response = await fetch('/api/overview', { cache: 'no-store' });
 	        if (!response.ok) return;
 	        overview = await response.json();
 	        byNamespace = buildNamespaceIndex(overview.workloads || []);
-	        if (byNamespace[selectedNamespace]) {
+	        renderNamespaceTree();
+	        if (selectedNamespace && byNamespace[selectedNamespace]) {
 	          selectNamespace(selectedNamespace, selectedWorkloadId);
+	        } else if (selectedNamespace) {
+	          selectedNamespace = '';
+	          selectedWorkloadId = '';
+	          detailState.textContent = 'none';
+	          detailBody.innerHTML = '<div class="empty-state">Select workload to inspect scaling contract, telemetry, recommendation state, and decision evidence.</div>';
 	        }
 	      } catch {
 	        return;
@@ -1409,9 +1597,9 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       }[ch]));
     }
 
-    nsList.querySelectorAll('.namespace-card').forEach(card => {
-      card.addEventListener('click', () => selectNamespace(card.dataset.namespace));
-    });
+    railToggle.addEventListener('click', () => setRailCollapsed(!workspace.classList.contains('rail-collapsed')));
+    renderNamespaceTree();
+    restoreRailState();
 	    restoreSelection();
 	    setInterval(refreshOverview, 15000);
   </script>

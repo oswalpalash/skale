@@ -233,9 +233,12 @@ The dashboard intentionally lists all discovered workloads, including workloads
 that do not have a known scaling contract. Those workloads are shown as
 `needs scaling contract` rather than receiving guessed replica counts.
 
-The dashboard timeline defaults to the last `30m`. Operators can widen the
-range to `1h`, `3h`, or `6h`; the selected namespace, workload, and window are
-stored in the URL hash so a refresh does not lose context.
+The dashboard uses a collapsible namespace/workload tree in the left rail so
+the selected workload detail and graph can use the main content area. The
+timeline defaults to the last `30m`. Operators can widen the range to `1h`,
+`3h`, or `6h`, and can hide or show the recommendation overlay with the small
+timeline checkbox. The selected namespace, workload, and window are stored in
+the URL hash so a refresh does not lose context.
 
 Recommendation history is Prometheus-backed. The CRD status keeps only
 `.status.lastRecommendation`, so a dashboard with no scraped recommendation
