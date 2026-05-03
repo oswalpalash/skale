@@ -110,6 +110,19 @@ spec:
                   type: object
                 maxItems: 8
                 type: array
+              forecastContextStep:
+                default: 5m
+                description: |-
+                  ForecastContextStep is the Prometheus range-query step used for model context.
+                  This should normally be coarser than scrape resolution for multi-day windows.
+                type: string
+              forecastContextWindow:
+                default: 168h
+                description: |-
+                  ForecastContextWindow is the historical demand window passed into forecast models.
+                  Production policies should usually use several days of context so daily and weekly
+                  patterns can be represented without relying on the dashboard lookback window.
+                type: string
               forecastHorizon:
                 default: 5m
                 description: ForecastHorizon is the short-horizon lookahead for replay
@@ -164,6 +177,18 @@ spec:
                 enum:
                 - disabled
                 - requireForScaleUp
+                type: string
+              recentContextStep:
+                default: 30s
+                description: |-
+                  RecentContextStep is the Prometheus range-query step for the high-resolution tail.
+                  It should normally be finer than forecastContextStep.
+                type: string
+              recentContextWindow:
+                default: 2h
+                description: |-
+                  RecentContextWindow is the high-resolution tail merged into the forecast context.
+                  It preserves current ramp shape while older history is sampled more coarsely.
                 type: string
               scaleDown:
                 description: ScaleStepPolicy bounds how much a recommendation may

@@ -74,6 +74,10 @@ spec:
     name: checkout-api
   mode: recommendationOnly
   forecastHorizon: 30m
+  forecastContextWindow: 168h
+  forecastContextStep: 15m
+  recentContextWindow: 2h
+  recentContextStep: 1m
   forecastSeasonality: 2h
   warmup:
     estimatedReadyDuration: 30m

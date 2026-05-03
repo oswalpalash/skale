@@ -41,6 +41,18 @@ func TestPredictiveScalingPolicyDefaultSetsConservativeDefaults(t *testing.T) {
 	if policy.Spec.ForecastHorizon.Duration != defaultForecastHorizon {
 		t.Fatalf("expected forecast horizon %s, got %s", defaultForecastHorizon, policy.Spec.ForecastHorizon.Duration)
 	}
+	if policy.Spec.ForecastContextWindow.Duration != defaultForecastContext {
+		t.Fatalf("expected forecast context window %s, got %s", defaultForecastContext, policy.Spec.ForecastContextWindow.Duration)
+	}
+	if policy.Spec.ForecastContextStep.Duration != defaultForecastContextStep {
+		t.Fatalf("expected forecast context step %s, got %s", defaultForecastContextStep, policy.Spec.ForecastContextStep.Duration)
+	}
+	if policy.Spec.RecentContextWindow.Duration != defaultRecentContext {
+		t.Fatalf("expected recent context window %s, got %s", defaultRecentContext, policy.Spec.RecentContextWindow.Duration)
+	}
+	if policy.Spec.RecentContextStep.Duration != defaultRecentContextStep {
+		t.Fatalf("expected recent context step %s, got %s", defaultRecentContextStep, policy.Spec.RecentContextStep.Duration)
+	}
 	if policy.Spec.Warmup.EstimatedReadyDuration.Duration != defaultWarmupDuration {
 		t.Fatalf("expected warmup duration %s, got %s", defaultWarmupDuration, policy.Spec.Warmup.EstimatedReadyDuration.Duration)
 	}
@@ -81,6 +93,10 @@ func TestPredictiveScalingPolicyValidateRejectsInvalidBoundsAndTarget(t *testing
 	policy.Spec.MinReplicas = 10
 	policy.Spec.MaxReplicas = 2
 	policy.Spec.ForecastHorizon.Duration = 45 * time.Minute
+	policy.Spec.ForecastContextWindow.Duration = 15 * 24 * time.Hour
+	policy.Spec.ForecastContextStep.Duration = 16 * 24 * time.Hour
+	policy.Spec.RecentContextWindow.Duration = 16 * 24 * time.Hour
+	policy.Spec.RecentContextStep.Duration = 20 * 24 * time.Hour
 	policy.Spec.ForecastSeasonality.Duration = -1 * time.Minute
 	policy.Spec.Warmup.EstimatedReadyDuration.Duration = 0
 	policy.Spec.TargetUtilization = 1.2
@@ -97,6 +113,10 @@ func TestPredictiveScalingPolicyValidateRejectsInvalidBoundsAndTarget(t *testing
 		"spec.targetRef.apiVersion":          false,
 		"spec.targetRef.kind":                false,
 		"spec.forecastHorizon":               false,
+		"spec.forecastContextWindow":         false,
+		"spec.forecastContextStep":           false,
+		"spec.recentContextWindow":           false,
+		"spec.recentContextStep":             false,
 		"spec.forecastSeasonality":           false,
 		"spec.warmup.estimatedReadyDuration": false,
 		"spec.targetUtilization":             false,
@@ -180,17 +200,21 @@ func validPolicy() *PredictiveScalingPolicy {
 				Kind:       "Deployment",
 				Name:       "checkout-api",
 			},
-			Mode:                PredictiveScalingModeRecommendationOnly,
-			ForecastHorizon:     metav1.Duration{Duration: 5 * time.Minute},
-			ForecastSeasonality: metav1.Duration{Duration: 24 * time.Hour},
-			Warmup:              WarmupSettings{EstimatedReadyDuration: metav1.Duration{Duration: 45 * time.Second}},
-			TargetUtilization:   0.75,
-			ConfidenceThreshold: 0.7,
-			MinReplicas:         2,
-			MaxReplicas:         10,
-			ScaleUp:             &ScaleStepPolicy{MaxReplicasChange: 4},
-			ScaleDown:           &ScaleStepPolicy{MaxReplicasChange: 2},
-			CooldownWindow:      metav1.Duration{Duration: 5 * time.Minute},
+			Mode:                  PredictiveScalingModeRecommendationOnly,
+			ForecastHorizon:       metav1.Duration{Duration: 5 * time.Minute},
+			ForecastContextWindow: metav1.Duration{Duration: 168 * time.Hour},
+			ForecastContextStep:   metav1.Duration{Duration: 5 * time.Minute},
+			RecentContextWindow:   metav1.Duration{Duration: 2 * time.Hour},
+			RecentContextStep:     metav1.Duration{Duration: 30 * time.Second},
+			ForecastSeasonality:   metav1.Duration{Duration: 24 * time.Hour},
+			Warmup:                WarmupSettings{EstimatedReadyDuration: metav1.Duration{Duration: 45 * time.Second}},
+			TargetUtilization:     0.75,
+			ConfidenceThreshold:   0.7,
+			MinReplicas:           2,
+			MaxReplicas:           10,
+			ScaleUp:               &ScaleStepPolicy{MaxReplicasChange: 4},
+			ScaleDown:             &ScaleStepPolicy{MaxReplicasChange: 2},
+			CooldownWindow:        metav1.Duration{Duration: 5 * time.Minute},
 			BlackoutWindows: []BlackoutWindow{
 				{
 					Name:   "release-freeze",

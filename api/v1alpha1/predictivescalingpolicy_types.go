@@ -137,6 +137,27 @@ type PredictiveScalingPolicySpec struct {
 	// +kubebuilder:default:="5m"
 	ForecastHorizon metav1.Duration `json:"forecastHorizon,omitempty"`
 
+	// ForecastContextWindow is the historical demand window passed into forecast models.
+	// Production policies should usually use several days of context so daily and weekly
+	// patterns can be represented without relying on the dashboard lookback window.
+	// +kubebuilder:default:="168h"
+	ForecastContextWindow metav1.Duration `json:"forecastContextWindow,omitempty"`
+
+	// ForecastContextStep is the Prometheus range-query step used for model context.
+	// This should normally be coarser than scrape resolution for multi-day windows.
+	// +kubebuilder:default:="5m"
+	ForecastContextStep metav1.Duration `json:"forecastContextStep,omitempty"`
+
+	// RecentContextWindow is the high-resolution tail merged into the forecast context.
+	// It preserves current ramp shape while older history is sampled more coarsely.
+	// +kubebuilder:default:="2h"
+	RecentContextWindow metav1.Duration `json:"recentContextWindow,omitempty"`
+
+	// RecentContextStep is the Prometheus range-query step for the high-resolution tail.
+	// It should normally be finer than forecastContextStep.
+	// +kubebuilder:default:="30s"
+	RecentContextStep metav1.Duration `json:"recentContextStep,omitempty"`
+
 	// ForecastSeasonality is an optional operator-declared recurring period for forecast models.
 	// When omitted, the controller may use detected seasonality only when evidence is sufficient;
 	// otherwise it must run in non-seasonal advisory mode.

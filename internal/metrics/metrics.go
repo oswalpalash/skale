@@ -31,6 +31,7 @@ type Target struct {
 type Window struct {
 	Start time.Time
 	End   time.Time
+	Step  time.Duration
 }
 
 // Sample is a normalized point-in-time value.

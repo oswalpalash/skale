@@ -4,6 +4,10 @@ import "time"
 
 const (
 	defaultForecastHorizon     = 5 * time.Minute
+	defaultForecastContext     = 168 * time.Hour
+	defaultForecastContextStep = 5 * time.Minute
+	defaultRecentContext       = 2 * time.Hour
+	defaultRecentContextStep   = 30 * time.Second
 	defaultWarmupDuration      = 45 * time.Second
 	defaultCooldownWindow      = 5 * time.Minute
 	defaultConfidenceThreshold = 0.7
@@ -28,6 +32,18 @@ func (s *PredictiveScalingPolicySpec) Default() {
 	}
 	if s.ForecastHorizon.Duration == 0 {
 		s.ForecastHorizon.Duration = defaultForecastHorizon
+	}
+	if s.ForecastContextWindow.Duration == 0 {
+		s.ForecastContextWindow.Duration = defaultForecastContext
+	}
+	if s.ForecastContextStep.Duration == 0 {
+		s.ForecastContextStep.Duration = defaultForecastContextStep
+	}
+	if s.RecentContextWindow.Duration == 0 {
+		s.RecentContextWindow.Duration = defaultRecentContext
+	}
+	if s.RecentContextStep.Duration == 0 {
+		s.RecentContextStep.Duration = defaultRecentContextStep
 	}
 	if s.Warmup.EstimatedReadyDuration.Duration == 0 {
 		s.Warmup.EstimatedReadyDuration.Duration = defaultWarmupDuration

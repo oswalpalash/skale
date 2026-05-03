@@ -158,6 +158,10 @@ func (in *PredictiveScalingPolicySpec) DeepCopyInto(out *PredictiveScalingPolicy
 	*out = *in
 	out.TargetRef = in.TargetRef
 	out.ForecastHorizon = in.ForecastHorizon
+	out.ForecastContextWindow = in.ForecastContextWindow
+	out.ForecastContextStep = in.ForecastContextStep
+	out.RecentContextWindow = in.RecentContextWindow
+	out.RecentContextStep = in.RecentContextStep
 	out.ForecastSeasonality = in.ForecastSeasonality
 	out.Warmup = in.Warmup
 	if in.ScaleUp != nil {

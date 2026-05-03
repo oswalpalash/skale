@@ -205,6 +205,12 @@ Important details:
 - demand and replica queries are the minimum live-series contract
 - CPU and memory are treated as required for readiness on this branch
 - warmup may come from fixed policy configuration or a query-backed proxy
+- forecast models use policy-owned history, not the dashboard time window:
+  `forecastContextWindow` defaults to `168h` at `5m` resolution, with a
+  `recentContextWindow` tail defaulting to `2h` at `30s` resolution
+- the controller fetches the older context coarsely and the recent tail finely,
+  then replaces overlapping older samples with recent samples before inference;
+  telemetry readiness is evaluated against the recent tail
 - when `--timesfm-url` or `--timesfm-command` is configured, TimesFM is the
   preferred forecast model; seasonal naive and Holt-Winters still run side by
   side for comparison
@@ -241,10 +247,11 @@ The runner installs the upstream TimesFM repository with its `torch` extra and
 keeps model loading out of the controller process.
 
 Skale does not train TimesFM inside the controller. TimesFM is run as inference
-against the latest Prometheus context. Predictions can improve as history,
-seasonality evidence, capacity estimates, and calibration data improve, but
-model weights do not change unless an external offline fine-tuning workflow is
-added later.
+against the latest Prometheus context. Policies default to a multi-resolution
+context: up to seven days sampled coarsely, plus a high-resolution recent tail
+for current ramps. Predictions can improve as retained history, seasonality
+evidence, capacity estimates, and calibration data improve, but model weights do
+not change unless an external offline fine-tuning workflow is added later.
 
 ## Safety Behavior
 

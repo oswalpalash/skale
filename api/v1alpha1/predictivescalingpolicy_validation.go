@@ -7,6 +7,7 @@ import (
 )
 
 const maxForecastHorizon = 30 * time.Minute
+const maxForecastContextWindow = 14 * 24 * time.Hour
 
 // Validate returns schema-level validation errors that are easier to unit test before webhook wiring exists.
 func (p *PredictiveScalingPolicy) Validate() field.ErrorList {
@@ -34,6 +35,33 @@ func (s *PredictiveScalingPolicySpec) Validate(path *field.Path) field.ErrorList
 	}
 	if s.ForecastHorizon.Duration > maxForecastHorizon {
 		allErrs = append(allErrs, field.Invalid(path.Child("forecastHorizon"), s.ForecastHorizon.String(), "must be 30m or less in v1"))
+	}
+	if s.ForecastContextWindow.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("forecastContextWindow"), s.ForecastContextWindow.String(), "must be greater than zero"))
+	}
+	if s.ForecastContextWindow.Duration > maxForecastContextWindow {
+		allErrs = append(allErrs, field.Invalid(path.Child("forecastContextWindow"), s.ForecastContextWindow.String(), "must be 336h or less in v1"))
+	}
+	if s.ForecastContextStep.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("forecastContextStep"), s.ForecastContextStep.String(), "must be greater than zero"))
+	}
+	if s.ForecastContextWindow.Duration > 0 && s.ForecastContextStep.Duration > 0 && s.ForecastContextStep.Duration > s.ForecastContextWindow.Duration {
+		allErrs = append(allErrs, field.Invalid(path.Child("forecastContextStep"), s.ForecastContextStep.String(), "must be less than or equal to forecastContextWindow"))
+	}
+	if s.RecentContextWindow.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("recentContextWindow"), s.RecentContextWindow.String(), "must be greater than zero"))
+	}
+	if s.ForecastContextWindow.Duration > 0 && s.RecentContextWindow.Duration > 0 && s.RecentContextWindow.Duration > s.ForecastContextWindow.Duration {
+		allErrs = append(allErrs, field.Invalid(path.Child("recentContextWindow"), s.RecentContextWindow.String(), "must be less than or equal to forecastContextWindow"))
+	}
+	if s.RecentContextStep.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(path.Child("recentContextStep"), s.RecentContextStep.String(), "must be greater than zero"))
+	}
+	if s.RecentContextWindow.Duration > 0 && s.RecentContextStep.Duration > 0 && s.RecentContextStep.Duration > s.RecentContextWindow.Duration {
+		allErrs = append(allErrs, field.Invalid(path.Child("recentContextStep"), s.RecentContextStep.String(), "must be less than or equal to recentContextWindow"))
+	}
+	if s.ForecastContextStep.Duration > 0 && s.RecentContextStep.Duration > 0 && s.RecentContextStep.Duration > s.ForecastContextStep.Duration {
+		allErrs = append(allErrs, field.Invalid(path.Child("recentContextStep"), s.RecentContextStep.String(), "must be less than or equal to forecastContextStep"))
 	}
 	if s.ForecastSeasonality.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(path.Child("forecastSeasonality"), s.ForecastSeasonality.String(), "must not be negative"))

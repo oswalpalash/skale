@@ -153,6 +153,44 @@ func TestAdapterLoadWindowAllowsMissingOptionalSignals(t *testing.T) {
 	}
 }
 
+func TestAdapterLoadWindowUsesWindowStep(t *testing.T) {
+	t.Parallel()
+
+	window := testWindow()
+	window.Step = 5 * time.Minute
+	api := &fakeAPI{
+		results: map[string]RangeQueryResult{
+			`sum(rate(http_requests_total{namespace="payments",deployment="checkout"}[5m]))`:   singleSeriesResult(120.5, 133.0),
+			`max(kube_deployment_status_replicas{namespace="payments",deployment="checkout"})`: singleSeriesResult(4, 4),
+		},
+	}
+
+	adapter := Adapter{
+		API:  api,
+		Step: 30 * time.Second,
+		Queries: Queries{
+			Demand: SignalQuery{
+				Expr: `sum(rate(http_requests_total{namespace="$namespace",deployment="$deployment"}[5m]))`,
+			},
+			Replicas: SignalQuery{
+				Expr: `max(kube_deployment_status_replicas{namespace="$namespace",deployment="$deployment"})`,
+			},
+		},
+	}
+
+	if _, err := adapter.LoadWindow(context.Background(), metrics.Target{Namespace: "payments", Name: "checkout"}, window); err != nil {
+		t.Fatalf("LoadWindow() error = %v", err)
+	}
+	if len(api.steps) != 2 {
+		t.Fatalf("query steps = %#v, want two workload queries", api.steps)
+	}
+	for _, step := range api.steps {
+		if step != 5*time.Minute {
+			t.Fatalf("query step = %s, want 5m; all steps %#v", step, api.steps)
+		}
+	}
+}
+
 func TestAdapterLoadWindowFailsForMissingRequiredSeries(t *testing.T) {
 	t.Parallel()
 
@@ -381,10 +419,12 @@ type fakeAPI struct {
 	results map[string]RangeQueryResult
 	errs    map[string]error
 	queries []string
+	steps   []time.Duration
 }
 
-func (f *fakeAPI) QueryRange(_ context.Context, query string, _, _ time.Time, _ time.Duration) (RangeQueryResult, error) {
+func (f *fakeAPI) QueryRange(_ context.Context, query string, _, _ time.Time, step time.Duration) (RangeQueryResult, error) {
 	f.queries = append(f.queries, query)
+	f.steps = append(f.steps, step)
 	if err, ok := f.errs[query]; ok {
 		return RangeQueryResult{}, err
 	}

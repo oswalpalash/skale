@@ -231,6 +231,20 @@ Prometheus scrape history turns those gauges into historical model lines. The
 dashboard reads `skale_forecast_predicted_replicas` for the `ready` horizon and
 merges those historical points with the current forward-looking forecast.
 
+Forecast context is policy-owned. It is intentionally separate from the
+dashboard time window:
+
+- `forecastContextWindow` defaults to `168h`
+- `forecastContextStep` defaults to `5m`
+- `recentContextWindow` defaults to `2h`
+- `recentContextStep` defaults to `30s`
+
+The controller fetches older history at the coarse context step, fetches the
+recent tail at the finer recent step, and lets recent samples replace overlapping
+older samples before model inference. Telemetry readiness is checked against the
+recent high-resolution tail, so a seven-day coarse history does not make recent
+scrape quality look worse than it is.
+
 TimesFM is inference-only in this setup. The pretrained weights do not improve
 inside the controller. Forecast quality can still improve as Prometheus retains
 more useful history, seasonality detection gets better evidence, capacity

@@ -156,7 +156,7 @@ func (a Adapter) LoadRecommendationHistory(ctx context.Context, target metrics.T
 		target.Namespace,
 		target.Name,
 	)
-	result, err := a.API.QueryRange(ctx, query, window.Start, window.End, a.queryStep())
+	result, err := a.API.QueryRange(ctx, query, window.Start, window.End, a.queryStep(window))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (a Adapter) LoadForecastPredictionHistory(ctx context.Context, target metri
 		target.Name,
 		horizon,
 	)
-	result, err := a.API.QueryRange(ctx, query, window.Start, window.End, a.queryStep())
+	result, err := a.API.QueryRange(ctx, query, window.Start, window.End, a.queryStep(window))
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +259,7 @@ func (a Adapter) loadSignal(
 	}
 
 	rendered := query.Render(target)
-	result, err := a.API.QueryRange(ctx, rendered, window.Start, window.End, a.queryStep())
+	result, err := a.API.QueryRange(ctx, rendered, window.Start, window.End, a.queryStep(window))
 	if err != nil {
 		return nil, &SignalError{
 			Signal: name,
@@ -304,7 +304,10 @@ func (a Adapter) loadSignal(
 	return &series, nil
 }
 
-func (a Adapter) queryStep() time.Duration {
+func (a Adapter) queryStep(window metrics.Window) time.Duration {
+	if window.Step > 0 {
+		return window.Step
+	}
 	if a.Step <= 0 {
 		return defaultQueryStep
 	}

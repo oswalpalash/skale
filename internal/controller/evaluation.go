@@ -18,6 +18,10 @@ import (
 const (
 	defaultControllerLookback        = 30 * time.Minute
 	defaultControllerStep            = 30 * time.Second
+	defaultForecastContextWindow     = 168 * time.Hour
+	defaultForecastContextStep       = 5 * time.Minute
+	defaultRecentContextWindow       = 2 * time.Hour
+	defaultRecentContextStep         = 30 * time.Second
 	defaultCapacityLookback          = 15 * time.Minute
 	defaultMinimumCapacitySamples    = 3
 	defaultSeasonalityMinCorrelation = 0.75
@@ -98,20 +102,18 @@ func (p EvaluationPipeline) Evaluate(
 		recommendEngine = recommend.DeterministicEngine{}
 	}
 
-	window := metrics.Window{
-		Start: evaluatedAt.Add(-controllerLookback(policy.Spec)),
-		End:   evaluatedAt,
-	}
+	window := controllerForecastContextWindowSpec(policy.Spec, evaluatedAt)
 	result := LiveEvaluation{
 		EvaluatedAt: evaluatedAt.UTC(),
 		Window:      window,
 		Workload:    target.Identity,
 	}
 
-	snapshot, err := provider.LoadWindow(ctx, metrics.Target{
+	metricsTarget := metrics.Target{
 		Namespace: target.Identity.Namespace,
 		Name:      target.Identity.Name,
-	}, window)
+	}
+	snapshot, readinessSnapshot, err := loadTieredContext(ctx, provider, metricsTarget, policy.Spec, evaluatedAt)
 	if err != nil {
 		result.Stage = evaluationStageTelemetryUnavailable
 		result.Message = fmt.Sprintf("telemetry inputs could not be loaded: %v", err)
@@ -123,10 +125,11 @@ func (p EvaluationPipeline) Evaluate(
 		}
 		return result, nil
 	}
+	result.Window = snapshot.Window
 
 	readinessInput := metrics.ReadinessInput{
 		EvaluatedAt: evaluatedAt,
-		Snapshot:    snapshot,
+		Snapshot:    readinessSnapshot,
 		KnownWarmup: durationPtr(policy.Spec.Warmup.EstimatedReadyDuration.Duration),
 		Options:     controllerReadinessOptions(policy.Spec, p.ReadinessExpectedResolution),
 	}
@@ -176,11 +179,12 @@ func (p EvaluationPipeline) Evaluate(
 
 	demandPoints := signalSeriesToForecastPoints(snapshot.Demand)
 	seasonality := controllerForecastSeasonality(policy.Spec, p.ForecastSeasonalityOverride, demandPoints)
+	forecastStep := controllerRecentContextStep(policy.Spec)
 	forecastInput := forecast.Input{
 		Series:                demandPoints,
 		EvaluatedAt:           evaluatedAt,
 		Horizon:               policy.Spec.ForecastHorizon.Duration,
-		Step:                  0,
+		Step:                  forecastStep,
 		Seasonality:           seasonality.Period,
 		SeasonalitySource:     seasonality.Source,
 		SeasonalityConfidence: seasonality.Confidence,
@@ -245,7 +249,66 @@ func (p EvaluationPipeline) Evaluate(
 	return result, nil
 }
 
-func controllerLookback(spec skalev1alpha1.PredictiveScalingPolicySpec) time.Duration {
+func controllerForecastContextWindowSpec(spec skalev1alpha1.PredictiveScalingPolicySpec, evaluatedAt time.Time) metrics.Window {
+	return metrics.Window{
+		Start: evaluatedAt.Add(-controllerForecastContextWindow(spec)),
+		End:   evaluatedAt,
+		Step:  controllerForecastContextStep(spec),
+	}
+}
+
+func controllerRecentContextWindowSpec(spec skalev1alpha1.PredictiveScalingPolicySpec, evaluatedAt time.Time) metrics.Window {
+	return metrics.Window{
+		Start: evaluatedAt.Add(-controllerRecentContextWindow(spec)),
+		End:   evaluatedAt,
+		Step:  controllerRecentContextStep(spec),
+	}
+}
+
+func controllerForecastContextWindow(spec skalev1alpha1.PredictiveScalingPolicySpec) time.Duration {
+	if spec.ForecastContextWindow.Duration > 0 {
+		return spec.ForecastContextWindow.Duration
+	}
+	if spec.ForecastSeasonality.Duration > 0 {
+		if candidate := spec.ForecastSeasonality.Duration * 2; candidate > defaultControllerLookback {
+			return candidate
+		}
+	}
+	return defaultForecastContextWindow
+}
+
+func controllerForecastContextStep(spec skalev1alpha1.PredictiveScalingPolicySpec) time.Duration {
+	if spec.ForecastContextStep.Duration > 0 {
+		return spec.ForecastContextStep.Duration
+	}
+	return defaultForecastContextStep
+}
+
+func controllerRecentContextWindow(spec skalev1alpha1.PredictiveScalingPolicySpec) time.Duration {
+	contextWindow := controllerForecastContextWindow(spec)
+	recentWindow := spec.RecentContextWindow.Duration
+	if recentWindow <= 0 {
+		recentWindow = defaultRecentContextWindow
+	}
+	if recentWindow > contextWindow {
+		return contextWindow
+	}
+	return recentWindow
+}
+
+func controllerRecentContextStep(spec skalev1alpha1.PredictiveScalingPolicySpec) time.Duration {
+	recentStep := spec.RecentContextStep.Duration
+	if recentStep <= 0 {
+		recentStep = defaultRecentContextStep
+	}
+	contextStep := controllerForecastContextStep(spec)
+	if contextStep > 0 && recentStep > contextStep {
+		return contextStep
+	}
+	return recentStep
+}
+
+func controllerReadinessLookback(spec skalev1alpha1.PredictiveScalingPolicySpec) time.Duration {
 	lookback := defaultControllerLookback
 	if candidate := spec.ForecastHorizon.Duration * 6; candidate > lookback {
 		lookback = candidate
@@ -258,12 +321,130 @@ func controllerLookback(spec skalev1alpha1.PredictiveScalingPolicySpec) time.Dur
 
 func controllerReadinessOptions(spec skalev1alpha1.PredictiveScalingPolicySpec, expectedResolution time.Duration) metrics.ReadinessOptions {
 	options := metrics.DefaultReadinessOptions()
-	options.MinimumLookback = controllerLookback(spec)
+	options.MinimumLookback = controllerReadinessLookback(spec)
 	if expectedResolution <= 0 {
 		expectedResolution = defaultControllerStep
 	}
+	if recentStep := controllerRecentContextStep(spec); recentStep > expectedResolution {
+		expectedResolution = recentStep
+	}
 	options.ExpectedResolution = expectedResolution
 	return options
+}
+
+func loadTieredContext(
+	ctx context.Context,
+	provider metrics.Provider,
+	target metrics.Target,
+	spec skalev1alpha1.PredictiveScalingPolicySpec,
+	evaluatedAt time.Time,
+) (metrics.Snapshot, metrics.Snapshot, error) {
+	baseWindow := controllerForecastContextWindowSpec(spec, evaluatedAt)
+	recentWindow := controllerRecentContextWindowSpec(spec, evaluatedAt)
+	baseSnapshot, err := provider.LoadWindow(ctx, target, baseWindow)
+	if err != nil {
+		return metrics.Snapshot{}, metrics.Snapshot{}, err
+	}
+
+	if sameWindow(baseWindow, recentWindow) {
+		return baseSnapshot, baseSnapshot, nil
+	}
+
+	recentSnapshot, err := provider.LoadWindow(ctx, target, recentWindow)
+	if err != nil {
+		return metrics.Snapshot{}, metrics.Snapshot{}, err
+	}
+
+	return mergeSnapshots(baseSnapshot, recentSnapshot), recentSnapshot, nil
+}
+
+func sameWindow(a metrics.Window, b metrics.Window) bool {
+	return a.Start.Equal(b.Start) && a.End.Equal(b.End) && a.Step == b.Step
+}
+
+func mergeSnapshots(base metrics.Snapshot, recent metrics.Snapshot) metrics.Snapshot {
+	return metrics.Snapshot{
+		Window: metrics.Window{
+			Start: base.Window.Start,
+			End:   recent.Window.End,
+			Step:  recent.Window.Step,
+		},
+		Demand:       mergeSeries(base.Demand, recent.Demand),
+		Replicas:     mergeSeries(base.Replicas, recent.Replicas),
+		CPU:          mergeOptionalSeries(base.CPU, recent.CPU),
+		Memory:       mergeOptionalSeries(base.Memory, recent.Memory),
+		Latency:      mergeOptionalSeries(base.Latency, recent.Latency),
+		Errors:       mergeOptionalSeries(base.Errors, recent.Errors),
+		Warmup:       mergeOptionalSeries(base.Warmup, recent.Warmup),
+		NodeHeadroom: mergeOptionalSeries(base.NodeHeadroom, recent.NodeHeadroom),
+	}
+}
+
+func mergeOptionalSeries(base *metrics.SignalSeries, recent *metrics.SignalSeries) *metrics.SignalSeries {
+	switch {
+	case base == nil && recent == nil:
+		return nil
+	case base == nil:
+		merged := mergeSeries(metrics.SignalSeries{Name: recent.Name, Unit: recent.Unit}, *recent)
+		return &merged
+	case recent == nil:
+		merged := mergeSeries(*base, metrics.SignalSeries{Name: base.Name, Unit: base.Unit})
+		return &merged
+	default:
+		merged := mergeSeries(*base, *recent)
+		return &merged
+	}
+}
+
+func mergeSeries(base metrics.SignalSeries, recent metrics.SignalSeries) metrics.SignalSeries {
+	out := metrics.SignalSeries{
+		Name:                    base.Name,
+		Unit:                    base.Unit,
+		ObservedLabelSignatures: mergeStrings(base.ObservedLabelSignatures, recent.ObservedLabelSignatures),
+	}
+	if out.Name == "" {
+		out.Name = recent.Name
+	}
+	if out.Unit == "" {
+		out.Unit = recent.Unit
+	}
+
+	samplesByTimestamp := make(map[time.Time]metrics.Sample, len(base.Samples)+len(recent.Samples))
+	for _, sample := range base.Samples {
+		samplesByTimestamp[sample.Timestamp.UTC()] = metrics.Sample{
+			Timestamp: sample.Timestamp.UTC(),
+			Value:     sample.Value,
+		}
+	}
+	for _, sample := range recent.Samples {
+		samplesByTimestamp[sample.Timestamp.UTC()] = metrics.Sample{
+			Timestamp: sample.Timestamp.UTC(),
+			Value:     sample.Value,
+		}
+	}
+
+	out.Samples = make([]metrics.Sample, 0, len(samplesByTimestamp))
+	for _, sample := range samplesByTimestamp {
+		out.Samples = append(out.Samples, sample)
+	}
+	sort.Slice(out.Samples, func(i, j int) bool {
+		return out.Samples[i].Timestamp.Before(out.Samples[j].Timestamp)
+	})
+	return out
+}
+
+func mergeStrings(left []string, right []string) []string {
+	seen := make(map[string]struct{}, len(left)+len(right))
+	out := make([]string, 0, len(left)+len(right))
+	for _, value := range append(append([]string(nil), left...), right...) {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func forecastMetricsFromResult(result forecast.Result, snapshot metrics.Snapshot, spec skalev1alpha1.PredictiveScalingPolicySpec, evaluatedAt time.Time, capacityEstimate *recommend.CapacityEstimate) []ForecastMetric {

@@ -133,6 +133,10 @@ func TestEvaluationPipelineSupportsCoarseDemoTelemetryWithResolutionOverride(t *
 	now := time.Date(2026, time.April, 2, 12, 45, 0, 0, time.UTC)
 	policy := testPolicy()
 	policy.Spec.ForecastHorizon.Duration = 10 * time.Minute
+	policy.Spec.ForecastContextWindow = metav1.Duration{Duration: 90 * time.Minute}
+	policy.Spec.ForecastContextStep = metav1.Duration{Duration: 5 * time.Minute}
+	policy.Spec.RecentContextWindow = metav1.Duration{Duration: 90 * time.Minute}
+	policy.Spec.RecentContextStep = metav1.Duration{Duration: 5 * time.Minute}
 	policy.Spec.Warmup.EstimatedReadyDuration.Duration = 10 * time.Minute
 	policy.Spec.MaxReplicas = 4
 	policy.Spec.CooldownWindow.Duration = 10 * time.Minute
@@ -145,8 +149,8 @@ func TestEvaluationPipelineSupportsCoarseDemoTelemetryWithResolutionOverride(t *
 	if err != nil {
 		t.Fatalf("Evaluate() without override error = %v", err)
 	}
-	if withoutOverride.Stage != evaluationStageTelemetryUnavailable {
-		t.Fatalf("without override stage = %q, want %q", withoutOverride.Stage, evaluationStageTelemetryUnavailable)
+	if withoutOverride.Stage != evaluationStageDecision {
+		t.Fatalf("without override stage = %q, want %q", withoutOverride.Stage, evaluationStageDecision)
 	}
 
 	withOverride, err := EvaluationPipeline{
@@ -165,6 +169,59 @@ func TestEvaluationPipelineSupportsCoarseDemoTelemetryWithResolutionOverride(t *
 	}
 	if withOverride.Recommendation == nil {
 		t.Fatal("expected recommendation explanation")
+	}
+}
+
+func TestEvaluationPipelineUsesTieredForecastContext(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.April, 2, 12, 0, 0, 0, time.UTC)
+	policy := testPolicy()
+	policy.Spec.ForecastContextWindow = metav1.Duration{Duration: 2 * time.Hour}
+	policy.Spec.ForecastContextStep = metav1.Duration{Duration: 5 * time.Minute}
+	policy.Spec.RecentContextWindow = metav1.Duration{Duration: 35 * time.Minute}
+	policy.Spec.RecentContextStep = metav1.Duration{Duration: 30 * time.Second}
+	policy.Spec.NodeHeadroomSanity = skalev1alpha1.NodeHeadroomSanityDisabled
+	provider := &generatedWindowProvider{}
+	model := &capturingForecastModel{}
+
+	result, err := EvaluationPipeline{
+		MetricsProvider: provider,
+		ForecastModel:   model,
+	}.Evaluate(context.Background(), policy, testResolvedTarget(), now, nil)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+
+	if len(provider.windows) != 2 {
+		t.Fatalf("loaded windows = %#v, want base and recent windows", provider.windows)
+	}
+	if provider.windows[0].Step != 5*time.Minute {
+		t.Fatalf("base step = %s, want 5m", provider.windows[0].Step)
+	}
+	if provider.windows[1].Step != 30*time.Second {
+		t.Fatalf("recent step = %s, want 30s", provider.windows[1].Step)
+	}
+	if !provider.windows[0].Start.Equal(now.Add(-2 * time.Hour)) {
+		t.Fatalf("base start = %s, want %s", provider.windows[0].Start, now.Add(-2*time.Hour))
+	}
+	if !provider.windows[1].Start.Equal(now.Add(-35 * time.Minute)) {
+		t.Fatalf("recent start = %s, want %s", provider.windows[1].Start, now.Add(-35*time.Minute))
+	}
+	if model.seriesCount <= 40 {
+		t.Fatalf("forecast series count = %d, want merged coarse history plus high-resolution recent tail", model.seriesCount)
+	}
+	if model.step != 30*time.Second {
+		t.Fatalf("forecast step = %s, want recent context step 30s", model.step)
+	}
+	if !model.firstTimestamp.Equal(now.Add(-2 * time.Hour)) {
+		t.Fatalf("forecast first timestamp = %s, want %s", model.firstTimestamp, now.Add(-2*time.Hour))
+	}
+	if !model.lastTimestamp.Equal(now) {
+		t.Fatalf("forecast last timestamp = %s, want %s", model.lastTimestamp, now)
+	}
+	if result.TelemetrySummary.State != "ready" {
+		t.Fatalf("telemetry state = %q, want ready", result.TelemetrySummary.State)
 	}
 }
 
@@ -356,6 +413,80 @@ func (m staticForecastModel) Forecast(context.Context, forecast.Input) (forecast
 		return forecast.Result{}, m.err
 	}
 	return m.result, nil
+}
+
+type capturingForecastModel struct {
+	seriesCount    int
+	firstTimestamp time.Time
+	lastTimestamp  time.Time
+	step           time.Duration
+}
+
+func (m *capturingForecastModel) Name() string {
+	return "capturing"
+}
+
+func (m *capturingForecastModel) Forecast(_ context.Context, input forecast.Input) (forecast.Result, error) {
+	m.seriesCount = len(input.Series)
+	m.step = input.Step
+	if len(input.Series) > 0 {
+		m.firstTimestamp = input.Series[0].Timestamp
+		m.lastTimestamp = input.Series[len(input.Series)-1].Timestamp
+	}
+	return forecast.Result{
+		Model:       "capturing",
+		GeneratedAt: input.EvaluatedAt,
+		Horizon:     input.Horizon,
+		Step:        30 * time.Second,
+		Points: []forecast.Point{{
+			Timestamp: input.EvaluatedAt.Add(time.Minute),
+			Value:     180,
+		}},
+		Confidence:  0.95,
+		Reliability: forecast.ReliabilityHigh,
+	}, nil
+}
+
+type generatedWindowProvider struct {
+	windows []metrics.Window
+}
+
+func (p *generatedWindowProvider) LoadWindow(_ context.Context, _ metrics.Target, window metrics.Window) (metrics.Snapshot, error) {
+	p.windows = append(p.windows, window)
+	step := window.Step
+	if step <= 0 {
+		step = 30 * time.Second
+	}
+	return metrics.Snapshot{
+		Window:   window,
+		Demand:   generatedSeries(metrics.SignalDemand, "rps", window, step, 120),
+		Replicas: generatedSeries(metrics.SignalReplicas, "replicas", window, step, 3),
+		CPU:      generatedSeriesPtr(metrics.SignalCPU, "ratio", window, step, 0.55),
+		Memory:   generatedSeriesPtr(metrics.SignalMemory, "ratio", window, step, 0.60),
+		Warmup:   generatedSeriesPtr(metrics.SignalWarmup, "seconds", window, step, 45),
+	}, nil
+}
+
+func generatedSeriesPtr(name metrics.SignalName, unit string, window metrics.Window, step time.Duration, value float64) *metrics.SignalSeries {
+	series := generatedSeries(name, unit, window, step, value)
+	return &series
+}
+
+func generatedSeries(name metrics.SignalName, unit string, window metrics.Window, step time.Duration, value float64) metrics.SignalSeries {
+	series := metrics.SignalSeries{
+		Name: name,
+		Unit: unit,
+		ObservedLabelSignatures: []string{
+			"deployment=checkout-api,namespace=payments",
+		},
+	}
+	for at := window.Start; !at.After(window.End); at = at.Add(step) {
+		series.Samples = append(series.Samples, metrics.Sample{
+			Timestamp: at.UTC(),
+			Value:     value,
+		})
+	}
+	return series
 }
 
 func testResolvedTarget() ResolvedTarget {

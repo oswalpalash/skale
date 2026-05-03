@@ -10,6 +10,10 @@ spec:
     name: checkout-api
   mode: recommendationOnly
   forecastHorizon: 5m
+  forecastContextWindow: 168h
+  forecastContextStep: 5m
+  recentContextWindow: 2h
+  recentContextStep: 30s
   # Optional. Omit when no evidence-backed recurring period is known; the
   # controller will report detected seasonality or non-seasonal mode.
   forecastSeasonality: 20m
