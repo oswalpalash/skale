@@ -216,8 +216,7 @@ func applyPolicy(workload *Workload, policy *skalev1alpha1.PredictiveScalingPoli
 		if workload.CurrentReplicas == nil && recommendation.BaselineReplicas > 0 {
 			workload.CurrentReplicas = int32Ptr(recommendation.BaselineReplicas)
 		}
-		if recommendation.State == skalev1alpha1.RecommendationStateAvailable ||
-			recommendation.State == skalev1alpha1.RecommendationStateSuppressed {
+		if recommendationDisplayable(evaluated.Status, recommendation) {
 			if recommendation.RecommendedReplicas > 0 {
 				workload.RecommendedReplicas = int32Ptr(recommendation.RecommendedReplicas)
 			}
@@ -225,6 +224,26 @@ func applyPolicy(workload *Workload, policy *skalev1alpha1.PredictiveScalingPoli
 	}
 	workload.SuppressionReasons = suppressionCodes(evaluated.Status.SuppressionReasons)
 	workload.NextAction = nextActionFor(workload.Qualification, workload.RecommendationState, true)
+}
+
+func recommendationDisplayable(status skalev1alpha1.PredictiveScalingPolicyStatus, recommendation *skalev1alpha1.RecommendationSummary) bool {
+	if recommendation == nil {
+		return false
+	}
+	if hasSuppressionReason(status.SuppressionReasons, "telemetry_not_ready") {
+		return false
+	}
+	return recommendation.State == skalev1alpha1.RecommendationStateAvailable ||
+		recommendation.State == skalev1alpha1.RecommendationStateSuppressed
+}
+
+func hasSuppressionReason(reasons []skalev1alpha1.SuppressionReason, code string) bool {
+	for _, reason := range reasons {
+		if reason.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func indexPolicies(policies []skalev1alpha1.PredictiveScalingPolicy) map[string]*skalev1alpha1.PredictiveScalingPolicy {

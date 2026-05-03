@@ -104,9 +104,13 @@ func TestBuildOverviewKeepsObservedHPAReplicasOverStaleRecommendationBaseline(t 
 			Mode:      skalev1alpha1.PredictiveScalingModeRecommendationOnly,
 		},
 		Status: skalev1alpha1.PredictiveScalingPolicyStatus{
+			SuppressionReasons: []skalev1alpha1.SuppressionReason{{
+				Code: "telemetry_not_ready",
+			}},
 			LastRecommendation: &skalev1alpha1.RecommendationSummary{
-				State:            skalev1alpha1.RecommendationStateUnavailable,
-				BaselineReplicas: 2,
+				State:               skalev1alpha1.RecommendationStateSuppressed,
+				BaselineReplicas:    2,
+				RecommendedReplicas: 6,
 			},
 		},
 	}
@@ -130,7 +134,7 @@ func TestBuildOverviewKeepsObservedHPAReplicasOverStaleRecommendationBaseline(t 
 		t.Fatalf("current replicas = %#v, want observed HPA value 6", checkout.CurrentReplicas)
 	}
 	if checkout.RecommendedReplicas != nil {
-		t.Fatalf("unavailable recommendation should not set recommended replicas, got %#v", checkout.RecommendedReplicas)
+		t.Fatalf("learning-phase recommendation should not set recommended replicas, got %#v", checkout.RecommendedReplicas)
 	}
 }
 

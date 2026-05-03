@@ -223,8 +223,7 @@ func (s *DashboardServer) timeline(ctx context.Context, namespace, name string, 
 				continue
 			}
 			recommendation := policy.Status.LastRecommendation
-			if recommendation.State == skalev1alpha1.RecommendationStateAvailable ||
-				recommendation.State == skalev1alpha1.RecommendationStateSuppressed {
+			if timelineRecommendationDisplayable(policy.Status, recommendation) {
 				timestamp := now
 				if recommendation.EvaluatedAt != nil {
 					timestamp = recommendation.EvaluatedAt.Time.UTC()
@@ -239,6 +238,19 @@ func (s *DashboardServer) timeline(ctx context.Context, namespace, name string, 
 		}
 	}
 	return timeline, nil
+}
+
+func timelineRecommendationDisplayable(status skalev1alpha1.PredictiveScalingPolicyStatus, recommendation *skalev1alpha1.RecommendationSummary) bool {
+	if recommendation == nil {
+		return false
+	}
+	for _, reason := range status.SuppressionReasons {
+		if reason.Code == "telemetry_not_ready" {
+			return false
+		}
+	}
+	return recommendation.State == skalev1alpha1.RecommendationStateAvailable ||
+		recommendation.State == skalev1alpha1.RecommendationStateSuppressed
 }
 
 func signalSamples(series metrics.SignalSeries) []dashboard.SignalSample {

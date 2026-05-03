@@ -623,6 +623,35 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       font-size: 12px;
       font-weight: 700;
     }
+    .graph-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      align-items: center;
+      margin: -2px 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.25;
+    }
+    .graph-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 18px;
+    }
+    .legend-swatch {
+      width: 18px;
+      height: 4px;
+      display: inline-block;
+      background: #7b857f;
+    }
+    .legend-swatch.replicas { background: var(--teal); }
+    .legend-swatch.demand { background: #2b4650; height: 2px; }
+    .legend-swatch.pressure {
+      height: 12px;
+      background: rgba(170, 67, 55, 0.22);
+      border: 1px solid rgba(170, 67, 55, 0.36);
+    }
     .evidence-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -943,6 +972,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        '</div>' +
 	        '<div class="evidence-card">' +
 	          '<div class="section-title"><span>Replica timeline</span><span>' + escapeHTML(timelineState) + '</span></div>' +
+	          graphLegendHTML(timelines[workload.id]) +
 	          replicaGraphHTML(workload, timelines[workload.id]) +
 	          pressureSummaryHTML(timelines[workload.id]) +
 	          '<div class="notice">' + evidenceNotice + '</div>' +
@@ -995,6 +1025,14 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      '</svg>';
 	    }
 
+	    function graphLegendHTML(timeline) {
+	      return '<div class="graph-legend">' +
+	        '<span><i class="legend-swatch replicas"></i>available replicas</span>' +
+	        '<span><i class="legend-swatch demand"></i>demand trend, scaled to fit</span>' +
+	        '<span><i class="legend-swatch pressure"></i>' + escapeHTML(pressureSignalLabel(timeline)) + '</span>' +
+	      '</div>';
+	    }
+
 	    function pressureSummaryHTML(timeline) {
 	      const demand = timeline && Array.isArray(timeline.demand) ? timeline.demand : [];
 	      const cpu = timeline && Array.isArray(timeline.cpu) ? timeline.cpu : [];
@@ -1008,6 +1046,12 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	          metricTileHTML(pressureLabel, latestValue(pressure), pressureUnit, pressure.length ? peakLabel(pressure, pressureUnit) : 'not available') +
 	          metricTileHTML('Replica response', replicaChangeLabel(timeline), '', pressureDriverLabel(timeline)) +
 	        '</div>';
+	    }
+
+	    function pressureSignalLabel(timeline) {
+	      if (timeline && Array.isArray(timeline.cpu) && timeline.cpu.length) return 'CPU usage/request';
+	      if (timeline && Array.isArray(timeline.memory) && timeline.memory.length) return 'Memory usage/request';
+	      return 'resource pressure';
 	    }
 
 	    function metricTileHTML(label, value, unit, detail) {

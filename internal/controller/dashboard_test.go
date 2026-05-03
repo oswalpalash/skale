@@ -152,6 +152,57 @@ func TestDashboardServerServesTimelineAPI(t *testing.T) {
 	}
 }
 
+func TestDashboardServerHidesTimelineRecommendationDuringTelemetryLearning(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.May, 3, 12, 0, 0, 0, time.UTC)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(discoveryTestScheme(t)).
+		WithObjects(&skalev1alpha1.PredictiveScalingPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "checkout-policy", Namespace: "payments"},
+			Spec: skalev1alpha1.PredictiveScalingPolicySpec{
+				TargetRef: skalev1alpha1.TargetReference{Name: "checkout-api"},
+			},
+			Status: skalev1alpha1.PredictiveScalingPolicyStatus{
+				SuppressionReasons: []skalev1alpha1.SuppressionReason{{
+					Code: "telemetry_not_ready",
+				}},
+				LastRecommendation: &skalev1alpha1.RecommendationSummary{
+					State:               skalev1alpha1.RecommendationStateSuppressed,
+					RecommendedReplicas: 5,
+				},
+			},
+		}).
+		Build()
+	server := DashboardServer{
+		Client: k8sClient,
+		Metrics: dashboardMetricsProvider{snapshot: metrics.Snapshot{
+			Replicas: metrics.SignalSeries{
+				Name: metrics.SignalReplicas,
+				Samples: []metrics.Sample{
+					{Timestamp: now.Add(-time.Minute), Value: 4},
+				},
+			},
+		}},
+		Now: func() time.Time { return now },
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workloads/payments/checkout-api/timeline?lookback=5m", nil)
+	server.handleTimeline(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var timeline dashboard.Timeline
+	if err := json.Unmarshal(recorder.Body.Bytes(), &timeline); err != nil {
+		t.Fatalf("unmarshal timeline: %v", err)
+	}
+	if timeline.Recommendation != nil {
+		t.Fatalf("learning-phase recommendation overlay = %#v, want nil", timeline.Recommendation)
+	}
+}
+
 func TestDashboardServerDoesNotRequireLeaderElection(t *testing.T) {
 	t.Parallel()
 
