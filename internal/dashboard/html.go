@@ -666,15 +666,20 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     }
     .replica-chart {
       width: 100%;
-      height: 210px;
+      height: min(42vh, 380px);
+      min-height: 300px;
       display: block;
-      margin: 2px 0 12px;
+      margin: 6px 0 14px;
     }
     .replica-chart .axis { stroke: #cdd7d2; stroke-width: 1; }
     .replica-chart .grid { stroke: #edf1ee; stroke-width: 1; }
     .replica-chart .current-line { stroke: var(--teal); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
     .replica-chart .recommended-line { stroke: var(--amber); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
     .replica-chart .demand-line { stroke: #2b4650; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0.72; }
+    .replica-chart .forecast-line { stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 7 5; opacity: 0.9; }
+    .replica-chart .forecast-line.timesfm { stroke: #7b5cff; }
+    .replica-chart .forecast-line.seasonal-naive { stroke: #0e8068; }
+    .replica-chart .forecast-line.holt-winters { stroke: #a86f15; }
     .replica-chart .pressure-area { fill: rgba(170, 67, 55, 0.16); stroke: none; }
     .replica-chart .point-current { fill: var(--teal); }
     .replica-chart .point-recommended { fill: var(--amber); }
@@ -769,6 +774,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       height: 13px;
       accent-color: var(--amber);
     }
+    .forecast-toggle input { accent-color: #7b5cff; }
     .evidence-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -842,6 +848,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       .timeline-bar { align-items: flex-start; flex-direction: column; }
       .timeline-controls { width: 100%; justify-content: flex-start; }
       .timeline-window { width: 100%; grid-template-columns: repeat(4, 1fr); grid-auto-flow: row; }
+      .replica-chart { height: 260px; min-height: 260px; }
     }
   </style>
 </head>
@@ -922,8 +929,17 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     let selectedWorkloadId = '';
     let selectedLookback = '30m';
     let showRecommendations = localStorage.getItem('skale-dashboard-show-recommendations') !== 'false';
+    let visibleForecastModels = restoreForecastModels();
     const lookbackOptions = ['30m', '1h', '3h', '6h'];
     const timelines = {};
+
+    function restoreForecastModels() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('skale-dashboard-forecast-models') || '[]');
+        if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
+      } catch {}
+      return new Set(['timesfm']);
+    }
 
     function buildNamespaceIndex(workloads) {
       return workloads.reduce((acc, workload) => {
@@ -1156,6 +1172,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	            '<div class="section-title"><span>Replica timeline</span><span>' + escapeHTML(timelineState) + '</span></div>' +
 	            '<div class="timeline-controls">' +
 	              recommendationToggleHTML() +
+	              forecastToggleHTML(timelines[workload.id]) +
 	              timelineWindowHTML() +
 	            '</div>' +
 	          '</div>' +
@@ -1179,6 +1196,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      const currentPath = timelinePath(history, 'current', maxValue, signalExtent, true);
 	      const recommendedPath = hasRecommendation ? timelinePath(history, 'recommended', maxValue, signalExtent, false) : '';
 	      const demandPath = signalLinePath(timeline && timeline.demand, signalExtent);
+	      const forecastPaths = forecastLinePaths(timeline, signalExtent);
 	      const pressureArea = pressureAreaPath(preferredPressureSamples(timeline), signalExtent);
 	      const currentPoints = timelinePoints(history, 'current', maxValue, 'point-current', signalExtent);
 	      const recommendedPoints = hasRecommendation ? timelinePoints(history, 'recommended', maxValue, 'point-recommended', signalExtent, true) : '';
@@ -1205,6 +1223,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        recommendedLegend +
 	        pressureShape +
 	        demandLine +
+	        forecastPaths +
 	        '<path class="current-line" d="' + currentPath + '"></path>' +
 	        recommendedLine +
 	        currentPoints +
@@ -1232,6 +1251,28 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 
     function recommendationToggleHTML() {
       return '<label class="line-toggle"><input type="checkbox" class="recommendation-line-toggle" ' + (showRecommendations ? 'checked' : '') + '> recommendation</label>';
+    }
+
+    function forecastToggleHTML(timeline) {
+      const models = forecastModels(timeline);
+      return models.map(model =>
+        '<label class="line-toggle forecast-toggle"><input type="checkbox" class="forecast-model-toggle" data-model="' + escapeHTML(model) + '" ' + (visibleForecastModels.has(model) ? 'checked' : '') + '> ' + escapeHTML(forecastLabel(model)) + '</label>'
+      ).join('');
+    }
+
+    function forecastModels(timeline) {
+      const defaults = ['timesfm', 'seasonal_naive', 'holt_winters'];
+      const models = timeline && Array.isArray(timeline.forecasts)
+        ? timeline.forecasts.map(forecast => forecast.model).filter(Boolean)
+        : [];
+      return [...new Set([...defaults, ...models])];
+    }
+
+    function forecastLabel(model) {
+      if (model === 'timesfm') return 'TimesFM';
+      if (model === 'seasonal_naive') return 'seasonal';
+      if (model === 'holt_winters') return 'H-W';
+      return model;
     }
 
 	    function pressureSummaryHTML(timeline) {
@@ -1306,7 +1347,10 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 
 	    function timelineExtent(history, timeline) {
 	      const timestamps = history.map(sample => Number(sample.t));
-	      for (const series of [timeline && timeline.demand, timeline && timeline.cpu, timeline && timeline.memory]) {
+	      const forecastSeries = timeline && Array.isArray(timeline.forecasts)
+	        ? timeline.forecasts.filter(forecast => visibleForecastModels.has(forecast.model)).map(forecast => forecast.points)
+	        : [];
+	      for (const series of [timeline && timeline.demand, timeline && timeline.cpu, timeline && timeline.memory, ...forecastSeries]) {
 	        if (!Array.isArray(series)) continue;
 	        for (const sample of series) {
 	          const t = Date.parse(sample.timestamp);
@@ -1323,6 +1367,18 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      if (points.length < 2) return '';
 	      return points.map((point, index) => (index === 0 ? 'M' : 'L') + point.x + ' ' + point.y).join(' ');
 	    }
+
+    function forecastLinePaths(timeline, extent) {
+      if (!timeline || !Array.isArray(timeline.forecasts)) return '';
+      return timeline.forecasts
+        .filter(forecast => visibleForecastModels.has(forecast.model) && Array.isArray(forecast.points) && forecast.points.length > 1)
+        .map(forecast => {
+          const path = signalLinePath(forecast.points, extent);
+          if (!path) return '';
+          return '<path class="forecast-line ' + tone(forecast.model) + '" d="' + path + '"></path>';
+        })
+        .join('');
+    }
 
 	    function pressureAreaPath(samples, extent) {
 	      const points = normalizedSignalCoordinates(samples, extent, true);
@@ -1424,6 +1480,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 
     function bindTimelineControls() {
       bindRecommendationToggle();
+      bindForecastToggles();
       bindTimelineWindowControls();
     }
 
@@ -1432,6 +1489,23 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
         input.addEventListener('change', () => {
           showRecommendations = input.checked;
           localStorage.setItem('skale-dashboard-show-recommendations', showRecommendations ? 'true' : 'false');
+          const workload = overview.workloads.find(item => item.id === selectedWorkloadId);
+          if (workload) {
+            detailBody.innerHTML = workloadDetailHTML(workload);
+            bindTimelineControls();
+          }
+        });
+      });
+    }
+
+    function bindForecastToggles() {
+      detailBody.querySelectorAll('.forecast-model-toggle').forEach(input => {
+        input.addEventListener('change', () => {
+          const model = input.dataset.model;
+          if (!model) return;
+          if (input.checked) visibleForecastModels.add(model);
+          else visibleForecastModels.delete(model);
+          localStorage.setItem('skale-dashboard-forecast-models', JSON.stringify([...visibleForecastModels]));
           const workload = overview.workloads.find(item => item.id === selectedWorkloadId);
           if (workload) {
             detailBody.innerHTML = workloadDetailHTML(workload);

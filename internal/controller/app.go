@@ -30,6 +30,7 @@ type Options struct {
 	LeaderElection         bool
 	MetricsProvider        metrics.Provider
 	ForecastModel          forecast.Model
+	DashboardForecasts     []forecast.Model
 	RecommendEngine        recommend.Engine
 	DependencyEvaluator    DependencyEvaluator
 	HeadroomProvider       HeadroomProvider
@@ -110,6 +111,7 @@ func Run(ctx context.Context, opts Options) error {
 			ConfigMapName: opts.DiscoveryConfigMapName,
 			BindAddress:   opts.DashboardBindAddress,
 			Metrics:       opts.MetricsProvider,
+			Forecasts:     opts.DashboardForecasts,
 			Now:           opts.Now,
 		}); err != nil {
 			return fmt.Errorf("setup dashboard server: %w", err)

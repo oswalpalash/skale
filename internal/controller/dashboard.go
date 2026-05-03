@@ -16,6 +16,7 @@ import (
 	skalev1alpha1 "github.com/oswalpalash/skale/api/v1alpha1"
 	"github.com/oswalpalash/skale/internal/dashboard"
 	"github.com/oswalpalash/skale/internal/discovery"
+	"github.com/oswalpalash/skale/internal/forecast"
 	"github.com/oswalpalash/skale/internal/metrics"
 )
 
@@ -28,6 +29,7 @@ type DashboardServer struct {
 	ConfigMapName string
 	BindAddress   string
 	Metrics       metrics.Provider
+	Forecasts     []forecast.Model
 	Now           func() time.Time
 }
 
@@ -215,39 +217,14 @@ func (s *DashboardServer) timeline(ctx context.Context, namespace, name string, 
 		timeline.Memory = signalSamples(*snapshot.Memory)
 	}
 
-	var policyName string
-	var policyStatus skalev1alpha1.PredictiveScalingPolicyStatus
-	var latestRecommendation *skalev1alpha1.RecommendationSummary
-	var policies skalev1alpha1.PredictiveScalingPolicyList
-	if err := s.Client.List(ctx, &policies, client.InNamespace(namespace)); err == nil {
-		for _, policy := range policies.Items {
-			policy.Default()
-			if policy.Spec.TargetRef.Name != name || policy.Status.LastRecommendation == nil {
-				continue
-			}
-			policyName = policy.Name
-			policyStatus = policy.Status
-			latestRecommendation = policy.Status.LastRecommendation
-			break
-		}
-	}
-	if historyProvider, ok := s.Metrics.(metrics.RecommendationHistoryProvider); ok {
-		history, err := historyProvider.LoadRecommendationHistory(ctx, metrics.Target{Namespace: namespace, Name: name}, metrics.Window{
-			Start: timeline.WindowStart,
-			End:   timeline.WindowEnd,
-		})
-		if err == nil {
-			for _, sample := range history {
-				if policyName != "" && sample.Policy != "" && sample.Policy != policyName {
-					continue
-				}
-				timeline.Recommendations = append(timeline.Recommendations, dashboard.TimelinePoint{
-					Timestamp: sample.Timestamp,
-					Replicas:  sample.Replicas,
-					State:     sample.State,
-				})
-			}
-		}
+	policyName, policyStatus, latestRecommendation, policySpec := s.timelinePolicy(ctx, namespace, name)
+	timeline.Recommendations = s.timelineRecommendations(ctx, namespace, name, policyName, metrics.Window{
+		Start: timeline.WindowStart,
+		End:   timeline.WindowEnd,
+	})
+	timeline.Forecasts = s.timelineForecasts(ctx, snapshot, policySpec, evaluatedAtFromTimeline(timeline, now))
+	if len(timeline.Forecasts) > 0 {
+		timeline.Source = "prometheus range query with forecast overlays"
 	}
 	if len(timeline.Recommendations) > 0 {
 		latest := timeline.Recommendations[len(timeline.Recommendations)-1]
@@ -264,6 +241,99 @@ func (s *DashboardServer) timeline(ctx context.Context, namespace, name string, 
 		}
 	}
 	return timeline, nil
+}
+
+func (s *DashboardServer) timelinePolicy(ctx context.Context, namespace, name string) (string, skalev1alpha1.PredictiveScalingPolicyStatus, *skalev1alpha1.RecommendationSummary, skalev1alpha1.PredictiveScalingPolicySpec) {
+	var policies skalev1alpha1.PredictiveScalingPolicyList
+	if err := s.Client.List(ctx, &policies, client.InNamespace(namespace)); err == nil {
+		for _, policy := range policies.Items {
+			policy.Default()
+			if policy.Spec.TargetRef.Name != name || policy.Status.LastRecommendation == nil {
+				continue
+			}
+			return policy.Name, policy.Status, policy.Status.LastRecommendation, policy.Spec
+		}
+	}
+	var fallback skalev1alpha1.PredictiveScalingPolicy
+	fallback.Default()
+	return "", skalev1alpha1.PredictiveScalingPolicyStatus{}, nil, fallback.Spec
+}
+
+func (s *DashboardServer) timelineForecasts(ctx context.Context, snapshot metrics.Snapshot, spec skalev1alpha1.PredictiveScalingPolicySpec, evaluatedAt time.Time) []dashboard.ForecastLine {
+	models := s.Forecasts
+	if len(models) == 0 {
+		models = []forecast.Model{
+			forecast.UnavailableModel{NameValue: forecast.TimesFMModelName, Reason: "timesfm command is not configured"},
+			forecast.SeasonalNaiveModel{},
+			forecast.HoltWintersModel{},
+		}
+	}
+	demandPoints := signalSeriesToForecastPoints(snapshot.Demand)
+	seasonality := controllerForecastSeasonality(spec, 0, demandPoints)
+	input := forecast.Input{
+		Series:                demandPoints,
+		EvaluatedAt:           evaluatedAt,
+		Horizon:               spec.ForecastHorizon.Duration,
+		Step:                  0,
+		Seasonality:           seasonality.Period,
+		SeasonalitySource:     seasonality.Source,
+		SeasonalityConfidence: seasonality.Confidence,
+	}
+	lines := make([]dashboard.ForecastLine, 0, len(models))
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		result, err := model.Forecast(ctx, input)
+		line := dashboard.ForecastLine{
+			Model: model.Name(),
+		}
+		if err != nil {
+			line.Error = err.Error()
+			lines = append(lines, line)
+			continue
+		}
+		line.Model = result.Model
+		line.Confidence = result.Confidence
+		line.Reliability = string(result.Reliability)
+		line.Selected = result.Model == forecast.TimesFMModelName
+		for _, point := range result.Points {
+			line.Points = append(line.Points, dashboard.SignalSample{
+				Timestamp: point.Timestamp,
+				Value:     point.Value,
+			})
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func evaluatedAtFromTimeline(timeline dashboard.Timeline, fallback time.Time) time.Time {
+	if !timeline.WindowEnd.IsZero() {
+		return timeline.WindowEnd
+	}
+	return fallback
+}
+
+func (s *DashboardServer) timelineRecommendations(ctx context.Context, namespace, name, policyName string, window metrics.Window) []dashboard.TimelinePoint {
+	if historyProvider, ok := s.Metrics.(metrics.RecommendationHistoryProvider); ok {
+		history, err := historyProvider.LoadRecommendationHistory(ctx, metrics.Target{Namespace: namespace, Name: name}, window)
+		if err == nil {
+			points := make([]dashboard.TimelinePoint, 0, len(history))
+			for _, sample := range history {
+				if policyName != "" && sample.Policy != "" && sample.Policy != policyName {
+					continue
+				}
+				points = append(points, dashboard.TimelinePoint{
+					Timestamp: sample.Timestamp,
+					Replicas:  sample.Replicas,
+					State:     sample.State,
+				})
+			}
+			return points
+		}
+	}
+	return nil
 }
 
 func timelineRecommendationDisplayable(status skalev1alpha1.PredictiveScalingPolicyStatus, recommendation *skalev1alpha1.RecommendationSummary) bool {

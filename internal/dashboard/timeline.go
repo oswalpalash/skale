@@ -15,6 +15,7 @@ type Timeline struct {
 	Memory          []SignalSample   `json:"memory,omitempty"`
 	Recommendation  *TimelinePoint   `json:"recommendation,omitempty"`
 	Recommendations []TimelinePoint  `json:"recommendations,omitempty"`
+	Forecasts       []ForecastLine   `json:"forecasts,omitempty"`
 	UnavailableText string           `json:"unavailableText,omitempty"`
 }
 
@@ -35,4 +36,14 @@ type TimelinePoint struct {
 	Timestamp time.Time `json:"timestamp"`
 	Replicas  float64   `json:"replicas"`
 	State     string    `json:"state,omitempty"`
+}
+
+// ForecastLine is one model's display-only forecast path for the dashboard.
+type ForecastLine struct {
+	Model       string         `json:"model,omitempty"`
+	Points      []SignalSample `json:"points,omitempty"`
+	Confidence  float64        `json:"confidence,omitempty"`
+	Reliability string         `json:"reliability,omitempty"`
+	Selected    bool           `json:"selected,omitempty"`
+	Error       string         `json:"error,omitempty"`
 }

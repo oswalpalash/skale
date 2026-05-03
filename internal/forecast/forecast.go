@@ -102,12 +102,44 @@ type Result struct {
 	Validation            Validation        `json:"validation,omitempty"`
 	FallbackReason        string            `json:"fallbackReason,omitempty"`
 	Advisories            []Advisory        `json:"advisories,omitempty"`
+	Candidates            []CandidateResult `json:"candidates,omitempty"`
 }
 
 // Model produces a short-horizon demand forecast from normalized demand history.
 type Model interface {
 	Name() string
 	Forecast(ctx context.Context, input Input) (Result, error)
+}
+
+// CandidateResult is the side-by-side output for one forecast model.
+type CandidateResult struct {
+	Model       string           `json:"model,omitempty"`
+	Points      []Point          `json:"points,omitempty"`
+	Confidence  float64          `json:"confidence,omitempty"`
+	Reliability ReliabilityLevel `json:"reliability,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	Selected    bool             `json:"selected,omitempty"`
+}
+
+func candidateFromResult(result Result, selected bool) CandidateResult {
+	return CandidateResult{
+		Model:       result.Model,
+		Points:      append([]Point(nil), result.Points...),
+		Confidence:  result.Confidence,
+		Reliability: result.Reliability,
+		Selected:    selected,
+	}
+}
+
+func candidateFromError(model string, err error) CandidateResult {
+	candidate := CandidateResult{
+		Model:       model,
+		Reliability: ReliabilityUnsupported,
+	}
+	if err != nil {
+		candidate.Error = err.Error()
+	}
+	return candidate
 }
 
 type preparedInput struct {

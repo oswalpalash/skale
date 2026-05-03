@@ -145,6 +145,8 @@ The controller exposes the following live-telemetry flags:
 
 - `--prometheus-url`
 - `--prometheus-step`
+- `--timesfm-command`
+- `--timesfm-timeout`
 - `--promql-demand`
 - `--promql-replicas`
 - `--promql-cpu`
@@ -169,6 +171,31 @@ The demand and replica queries may use:
 - `$namespace`
 - `$name`
 - `$deployment`
+
+## TimesFM Forecasting
+
+Skale can use TimesFM as the preferred forecast model through an external
+command runner. This keeps Python, model weights, and accelerator/runtime
+packaging outside the default Go controller image.
+
+The command receives JSON on stdin and returns JSON on stdout. The helper at
+[`hack/timesfm-forecast.py`](../hack/timesfm-forecast.py) implements that
+protocol using the public TimesFM Python package:
+
+```bash
+--timesfm-command=/opt/skale/timesfm-forecast.py
+```
+
+When this flag is set, the controller evaluates TimesFM, seasonal naive, and
+Holt-Winters side by side, but prefers TimesFM when it produces a usable result.
+If TimesFM fails or is not configured, Skale fails closed or falls back according
+to the existing model-selection path and surfaces the reason. The dashboard
+shows TimesFM by default and lets operators toggle the other model overlays on
+the graph.
+
+Production packaging is intentionally left to the operator: use a custom image,
+sidecar-accessible executable, or another controlled runtime path that can load
+the TimesFM dependencies and checkpoint cache.
 
 ## Example Deployment Args
 

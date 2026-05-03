@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/oswalpalash/skale/internal/controller"
+	"github.com/oswalpalash/skale/internal/forecast"
 	"github.com/oswalpalash/skale/internal/metrics"
 	"github.com/oswalpalash/skale/internal/replay"
 	"github.com/oswalpalash/skale/internal/replayinput"
@@ -26,6 +28,8 @@ func main() {
 	var discoveryConfigMapName string
 	var discoveryInterval time.Duration
 	var promConfig prometheusRuntimeConfig
+	var timesFMCommand string
+	var timesFMTimeout time.Duration
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -53,6 +57,8 @@ func main() {
 	flag.StringVar(&promConfig.ErrorsQuery, "promql-errors", "", "optional PromQL query for error-rate enrichment")
 	flag.StringVar(&promConfig.WarmupQuery, "promql-warmup", "", "optional PromQL query for warmup observations when warmup is not fixed in policy")
 	flag.StringVar(&promConfig.NodeHeadroomQuery, "promql-node-headroom", "", "optional PromQL query for node-headroom telemetry enrichment")
+	flag.StringVar(&timesFMCommand, "timesfm-command", "", "optional external TimesFM runner command; when set, TimesFM is the primary forecast model")
+	flag.DurationVar(&timesFMTimeout, "timesfm-timeout", 30*time.Second, "timeout for one TimesFM command invocation")
 	flag.Parse()
 	if showVersion {
 		fmt.Fprintln(os.Stdout, version.String())
@@ -61,6 +67,8 @@ func main() {
 
 	var metricsProvider metrics.Provider
 	var dependencyEvaluator controller.DependencyEvaluator
+	var forecastModel forecast.Model
+	var dashboardForecasts []forecast.Model
 	var evaluationNow func() time.Time
 	var readinessExpectedResolution time.Duration
 	var forecastSeasonalityOverride time.Duration
@@ -91,6 +99,22 @@ func main() {
 	if metricsProvider == nil && promConfig.enabled() {
 		metricsProvider, dependencyEvaluator = promConfig.build()
 	}
+	if command := strings.Fields(timesFMCommand); len(command) > 0 {
+		timesFM := forecast.CommandModel{Command: command, Timeout: timesFMTimeout}
+		forecastModel = forecast.SideBySideModel{
+			Primary:       forecast.TimesFMModelName,
+			TimesFM:       timesFM,
+			SeasonalNaive: forecast.SeasonalNaiveModel{},
+			HoltWinters:   forecast.HoltWintersModel{},
+		}
+		dashboardForecasts = []forecast.Model{timesFM, forecast.SeasonalNaiveModel{}, forecast.HoltWintersModel{}}
+	} else {
+		dashboardForecasts = []forecast.Model{
+			forecast.UnavailableModel{NameValue: forecast.TimesFMModelName, Reason: "timesfm command is not configured"},
+			forecast.SeasonalNaiveModel{},
+			forecast.HoltWintersModel{},
+		}
+	}
 
 	if err := controller.Run(
 		ctrl.SetupSignalHandler(),
@@ -100,6 +124,8 @@ func main() {
 			DashboardBindAddress:        dashboardAddr,
 			LeaderElection:              enableLeaderElection,
 			MetricsProvider:             metricsProvider,
+			ForecastModel:               forecastModel,
+			DashboardForecasts:          dashboardForecasts,
 			DependencyEvaluator:         dependencyEvaluator,
 			ReadinessExpectedResolution: readinessExpectedResolution,
 			ForecastSeasonalityOverride: forecastSeasonalityOverride,
