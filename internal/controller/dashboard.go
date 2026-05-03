@@ -215,6 +215,9 @@ func (s *DashboardServer) timeline(ctx context.Context, namespace, name string, 
 		timeline.Memory = signalSamples(*snapshot.Memory)
 	}
 
+	var policyName string
+	var policyStatus skalev1alpha1.PredictiveScalingPolicyStatus
+	var latestRecommendation *skalev1alpha1.RecommendationSummary
 	var policies skalev1alpha1.PredictiveScalingPolicyList
 	if err := s.Client.List(ctx, &policies, client.InNamespace(namespace)); err == nil {
 		for _, policy := range policies.Items {
@@ -222,19 +225,42 @@ func (s *DashboardServer) timeline(ctx context.Context, namespace, name string, 
 			if policy.Spec.TargetRef.Name != name || policy.Status.LastRecommendation == nil {
 				continue
 			}
-			recommendation := policy.Status.LastRecommendation
-			if timelineRecommendationDisplayable(policy.Status, recommendation) {
-				timestamp := now
-				if recommendation.EvaluatedAt != nil {
-					timestamp = recommendation.EvaluatedAt.Time.UTC()
-				}
-				timeline.Recommendation = &dashboard.TimelinePoint{
-					Timestamp: timestamp,
-					Replicas:  float64(recommendation.RecommendedReplicas),
-					State:     string(recommendation.State),
-				}
-			}
+			policyName = policy.Name
+			policyStatus = policy.Status
+			latestRecommendation = policy.Status.LastRecommendation
 			break
+		}
+	}
+	if historyProvider, ok := s.Metrics.(metrics.RecommendationHistoryProvider); ok {
+		history, err := historyProvider.LoadRecommendationHistory(ctx, metrics.Target{Namespace: namespace, Name: name}, metrics.Window{
+			Start: timeline.WindowStart,
+			End:   timeline.WindowEnd,
+		})
+		if err == nil {
+			for _, sample := range history {
+				if policyName != "" && sample.Policy != "" && sample.Policy != policyName {
+					continue
+				}
+				timeline.Recommendations = append(timeline.Recommendations, dashboard.TimelinePoint{
+					Timestamp: sample.Timestamp,
+					Replicas:  sample.Replicas,
+					State:     sample.State,
+				})
+			}
+		}
+	}
+	if len(timeline.Recommendations) > 0 {
+		latest := timeline.Recommendations[len(timeline.Recommendations)-1]
+		timeline.Recommendation = &latest
+	} else if timelineRecommendationDisplayable(policyStatus, latestRecommendation) {
+		timestamp := now
+		if latestRecommendation.EvaluatedAt != nil {
+			timestamp = latestRecommendation.EvaluatedAt.Time.UTC()
+		}
+		timeline.Recommendation = &dashboard.TimelinePoint{
+			Timestamp: timestamp,
+			Replicas:  float64(latestRecommendation.RecommendedReplicas),
+			State:     string(latestRecommendation.State),
 		}
 	}
 	return timeline, nil

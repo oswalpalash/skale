@@ -39,6 +39,14 @@ type Sample struct {
 	Value     float64
 }
 
+// RecommendationSample is a historical replica recommendation emitted by the controller.
+type RecommendationSample struct {
+	Timestamp time.Time
+	Replicas  float64
+	State     string
+	Policy    string
+}
+
 // SignalSeries is a normalized workload signal with optional label-consistency metadata.
 type SignalSeries struct {
 	Name                    SignalName
@@ -121,6 +129,11 @@ func (s WorkloadSignals) WithClusterSignals(window Window, cluster ClusterSignal
 // Provider loads normalized workload telemetry.
 type Provider interface {
 	LoadWindow(ctx context.Context, target Target, window Window) (Snapshot, error)
+}
+
+// RecommendationHistoryProvider loads controller-emitted recommendation history for dashboard evidence.
+type RecommendationHistoryProvider interface {
+	LoadRecommendationHistory(ctx context.Context, target Target, window Window) ([]RecommendationSample, error)
 }
 
 // WorkloadFetcher loads workload-scoped signals such as demand, replicas, and pod readiness proxies.

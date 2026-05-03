@@ -14,6 +14,7 @@ type Timeline struct {
 	CPU             []SignalSample   `json:"cpu,omitempty"`
 	Memory          []SignalSample   `json:"memory,omitempty"`
 	Recommendation  *TimelinePoint   `json:"recommendation,omitempty"`
+	Recommendations []TimelinePoint  `json:"recommendations,omitempty"`
 	UnavailableText string           `json:"unavailableText,omitempty"`
 }
 

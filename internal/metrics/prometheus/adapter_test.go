@@ -264,6 +264,61 @@ func TestAdapterLoadWindowFailsForMalformedSeries(t *testing.T) {
 	}
 }
 
+func TestAdapterLoadRecommendationHistory(t *testing.T) {
+	t.Parallel()
+
+	window := testWindow()
+	api := &fakeAPI{
+		results: map[string]RangeQueryResult{
+			`skale_recommendation_recommended_replicas{namespace="payments",workload="checkout"}`: {
+				Series: []QuerySeries{{
+					Labels: map[string]string{
+						"namespace": "payments",
+						"workload":  "checkout",
+						"policy":    "checkout-policy",
+						"state":     "available",
+					},
+					Samples: []metrics.Sample{
+						{Timestamp: window.Start.Add(2 * time.Minute), Value: 4},
+						{Timestamp: window.Start.Add(3 * time.Minute), Value: 5},
+					},
+				}, {
+					Labels: map[string]string{
+						"namespace": "payments",
+						"workload":  "checkout",
+						"policy":    "checkout-policy",
+						"state":     "suppressed",
+					},
+					Samples: []metrics.Sample{
+						{Timestamp: window.Start.Add(time.Minute), Value: 3},
+					},
+				}},
+			},
+		},
+	}
+	adapter := Adapter{
+		API:  api,
+		Step: 30 * time.Second,
+	}
+
+	history, err := adapter.LoadRecommendationHistory(context.Background(), metrics.Target{Namespace: "payments", Name: "checkout"}, window)
+	if err != nil {
+		t.Fatalf("LoadRecommendationHistory() error = %v", err)
+	}
+	if got, want := len(history), 3; got != want {
+		t.Fatalf("history length = %d, want %d: %#v", got, want, history)
+	}
+	if history[0].Replicas != 3 || history[0].State != "suppressed" || history[0].Policy != "checkout-policy" {
+		t.Fatalf("first history point = %#v, want suppressed 3", history[0])
+	}
+	if history[2].Replicas != 5 || history[2].State != "available" {
+		t.Fatalf("last history point = %#v, want available 5", history[2])
+	}
+	if !reflect.DeepEqual(api.queries, []string{`skale_recommendation_recommended_replicas{namespace="payments",workload="checkout"}`}) {
+		t.Fatalf("queries = %#v", api.queries)
+	}
+}
+
 type fakeAPI struct {
 	results map[string]RangeQueryResult
 	errs    map[string]error

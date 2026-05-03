@@ -104,29 +104,31 @@ func TestDashboardServerServesTimelineAPI(t *testing.T) {
 		Build()
 	server := DashboardServer{
 		Client: k8sClient,
-		Metrics: dashboardMetricsProvider{snapshot: metrics.Snapshot{
-			Demand: metrics.SignalSeries{
-				Name: metrics.SignalDemand,
-				Samples: []metrics.Sample{
-					{Timestamp: now.Add(-2 * time.Minute), Value: 12},
-					{Timestamp: now.Add(-time.Minute), Value: 30},
+		Metrics: dashboardMetricsProvider{
+			snapshot: metrics.Snapshot{
+				Demand: metrics.SignalSeries{
+					Name: metrics.SignalDemand,
+					Samples: []metrics.Sample{
+						{Timestamp: now.Add(-2 * time.Minute), Value: 12},
+						{Timestamp: now.Add(-time.Minute), Value: 30},
+					},
+				},
+				Replicas: metrics.SignalSeries{
+					Name: metrics.SignalReplicas,
+					Samples: []metrics.Sample{
+						{Timestamp: now.Add(-2 * time.Minute), Value: 3},
+						{Timestamp: now.Add(-time.Minute), Value: 4},
+					},
+				},
+				CPU: &metrics.SignalSeries{
+					Name: metrics.SignalCPU,
+					Samples: []metrics.Sample{
+						{Timestamp: now.Add(-2 * time.Minute), Value: 0.4},
+						{Timestamp: now.Add(-time.Minute), Value: 0.9},
+					},
 				},
 			},
-			Replicas: metrics.SignalSeries{
-				Name: metrics.SignalReplicas,
-				Samples: []metrics.Sample{
-					{Timestamp: now.Add(-2 * time.Minute), Value: 3},
-					{Timestamp: now.Add(-time.Minute), Value: 4},
-				},
-			},
-			CPU: &metrics.SignalSeries{
-				Name: metrics.SignalCPU,
-				Samples: []metrics.Sample{
-					{Timestamp: now.Add(-2 * time.Minute), Value: 0.4},
-					{Timestamp: now.Add(-time.Minute), Value: 0.9},
-				},
-			},
-		}},
+		},
 		Now: func() time.Time { return now },
 	}
 
@@ -152,6 +154,78 @@ func TestDashboardServerServesTimelineAPI(t *testing.T) {
 	}
 	if timeline.Recommendation == nil || timeline.Recommendation.Replicas != 5 {
 		t.Fatalf("recommendation = %#v, want 5 replicas", timeline.Recommendation)
+	}
+}
+
+func TestDashboardServerServesHistoricalTimelineRecommendations(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.May, 3, 12, 0, 0, 0, time.UTC)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(discoveryTestScheme(t)).
+		WithObjects(&skalev1alpha1.PredictiveScalingPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "checkout-policy", Namespace: "payments"},
+			Spec: skalev1alpha1.PredictiveScalingPolicySpec{
+				TargetRef: skalev1alpha1.TargetReference{Name: "checkout-api"},
+			},
+			Status: skalev1alpha1.PredictiveScalingPolicyStatus{
+				TelemetryReadiness: &skalev1alpha1.TelemetryReadinessSummary{
+					State: skalev1alpha1.TelemetryReadinessStateReady,
+				},
+				LastRecommendation: &skalev1alpha1.RecommendationSummary{
+					State:               skalev1alpha1.RecommendationStateAvailable,
+					RecommendedReplicas: 7,
+				},
+			},
+		}).
+		Build()
+	server := DashboardServer{
+		Client: k8sClient,
+		Metrics: dashboardMetricsProvider{
+			snapshot: metrics.Snapshot{
+				Replicas: metrics.SignalSeries{
+					Name: metrics.SignalReplicas,
+					Samples: []metrics.Sample{
+						{Timestamp: now.Add(-3 * time.Minute), Value: 3},
+					},
+				},
+			},
+			recommendationHistory: []metrics.RecommendationSample{{
+				Timestamp: now.Add(-3 * time.Minute),
+				Replicas:  4,
+				State:     "available",
+				Policy:    "checkout-policy",
+			}, {
+				Timestamp: now.Add(-2 * time.Minute),
+				Replicas:  9,
+				State:     "available",
+				Policy:    "other-policy",
+			}, {
+				Timestamp: now.Add(-time.Minute),
+				Replicas:  5,
+				State:     "suppressed",
+				Policy:    "checkout-policy",
+			}},
+		},
+		Now: func() time.Time { return now },
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workloads/payments/checkout-api/timeline?lookback=5m", nil)
+	server.handleTimeline(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var timeline dashboard.Timeline
+	if err := json.Unmarshal(recorder.Body.Bytes(), &timeline); err != nil {
+		t.Fatalf("unmarshal timeline: %v", err)
+	}
+	if got, want := len(timeline.Recommendations), 2; got != want {
+		t.Fatalf("recommendations = %d, want %d: %#v", got, want, timeline.Recommendations)
+	}
+	if timeline.Recommendation == nil || timeline.Recommendation.Replicas != 5 || timeline.Recommendation.State != "suppressed" {
+		t.Fatalf("latest recommendation = %#v, want suppressed 5", timeline.Recommendation)
 	}
 }
 
@@ -292,8 +366,9 @@ func TestDashboardServerServesHTML(t *testing.T) {
 }
 
 type dashboardMetricsProvider struct {
-	snapshot metrics.Snapshot
-	err      error
+	snapshot              metrics.Snapshot
+	err                   error
+	recommendationHistory []metrics.RecommendationSample
 }
 
 func (p dashboardMetricsProvider) LoadWindow(context.Context, metrics.Target, metrics.Window) (metrics.Snapshot, error) {
@@ -301,4 +376,8 @@ func (p dashboardMetricsProvider) LoadWindow(context.Context, metrics.Target, me
 		return metrics.Snapshot{}, p.err
 	}
 	return p.snapshot, nil
+}
+
+func (p dashboardMetricsProvider) LoadRecommendationHistory(context.Context, metrics.Target, metrics.Window) ([]metrics.RecommendationSample, error) {
+	return p.recommendationHistory, nil
 }

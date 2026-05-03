@@ -1124,9 +1124,12 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	            recommended: null
 	          })).filter(sample => Number.isFinite(sample.t))
 	        : [];
-	      if (timeline && timeline.recommendation) {
-	        const recommendationTime = Date.parse(timeline.recommendation.timestamp);
-	        const recommended = Number(timeline.recommendation.replicas);
+	      const recommendations = timeline && Array.isArray(timeline.recommendations) && timeline.recommendations.length > 0
+	        ? timeline.recommendations
+	        : (timeline && timeline.recommendation ? [timeline.recommendation] : []);
+	      for (const recommendation of recommendations) {
+	        const recommendationTime = Date.parse(recommendation.timestamp);
+	        const recommended = Number(recommendation.replicas);
 	        if (Number.isFinite(recommendationTime) && Number.isFinite(recommended)) {
 	          samples.push({ t: recommendationTime, current: null, recommended });
 	        }

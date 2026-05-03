@@ -55,6 +55,7 @@ type Adapter struct {
 var _ metrics.Provider = (*Adapter)(nil)
 var _ metrics.WorkloadFetcher = (*Adapter)(nil)
 var _ metrics.ClusterFetcher = (*Adapter)(nil)
+var _ metrics.RecommendationHistoryProvider = (*Adapter)(nil)
 
 // LoadWindow fetches the supported workload and cluster signals for the window.
 func (a Adapter) LoadWindow(ctx context.Context, target metrics.Target, window metrics.Window) (metrics.Snapshot, error) {
@@ -141,6 +142,44 @@ func (a Adapter) LoadClusterSignals(ctx context.Context, target metrics.Target, 
 	return metrics.ClusterSignals{
 		NodeHeadroom: headroom,
 	}, nil
+}
+
+// LoadRecommendationHistory fetches controller-emitted recommendation samples for dashboard timeline overlays.
+func (a Adapter) LoadRecommendationHistory(ctx context.Context, target metrics.Target, window metrics.Window) ([]metrics.RecommendationSample, error) {
+	if err := a.validateBase(window); err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf(
+		`skale_recommendation_recommended_replicas{namespace=%q,workload=%q}`,
+		target.Namespace,
+		target.Name,
+	)
+	result, err := a.API.QueryRange(ctx, query, window.Start, window.End, a.queryStep())
+	if err != nil {
+		return nil, err
+	}
+
+	samples := make([]metrics.RecommendationSample, 0)
+	for _, series := range result.Series {
+		state := strings.TrimSpace(series.Labels["state"])
+		policy := strings.TrimSpace(series.Labels["policy"])
+		for _, sample := range series.Samples {
+			samples = append(samples, metrics.RecommendationSample{
+				Timestamp: sample.Timestamp.UTC(),
+				Replicas:  sample.Value,
+				State:     state,
+				Policy:    policy,
+			})
+		}
+	}
+	sort.Slice(samples, func(i, j int) bool {
+		if samples[i].Timestamp.Equal(samples[j].Timestamp) {
+			return samples[i].Policy < samples[j].Policy
+		}
+		return samples[i].Timestamp.Before(samples[j].Timestamp)
+	})
+	return samples, nil
 }
 
 func (a Adapter) validateBase(window metrics.Window) error {
