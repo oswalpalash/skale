@@ -652,6 +652,37 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       background: rgba(170, 67, 55, 0.22);
       border: 1px solid rgba(170, 67, 55, 0.36);
     }
+    .timeline-bar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .timeline-window {
+      display: inline-grid;
+      grid-auto-flow: column;
+      border: 1px solid var(--line);
+      background: #f8faf9;
+    }
+    .timeline-window button {
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      min-width: 48px;
+      min-height: 30px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .timeline-window button:last-child { border-right: 0; }
+    .timeline-window button:hover,
+    .timeline-window button.active {
+      background: #18211e;
+      color: #f5f7f6;
+    }
     .evidence-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -722,6 +753,8 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       .kv-grid { grid-template-columns: 1fr 1fr; }
       .score { grid-template-columns: 1fr 1fr; }
       .evidence-strip { grid-template-columns: 1fr; }
+      .timeline-bar { align-items: flex-start; flex-direction: column; }
+      .timeline-window { width: 100%; grid-template-columns: repeat(4, 1fr); grid-auto-flow: row; }
     }
   </style>
 </head>
@@ -830,6 +863,8 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
     let byNamespace = buildNamespaceIndex(overview.workloads);
     let selectedNamespace = '';
     let selectedWorkloadId = '';
+    let selectedLookback = '30m';
+    const lookbackOptions = ['30m', '1h', '3h', '6h'];
     const timelines = {};
 
     function buildNamespaceIndex(workloads) {
@@ -945,6 +980,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       if (!workload) return;
       detailState.textContent = workload.qualification;
       detailBody.innerHTML = workloadDetailHTML(workload);
+      bindTimelineWindowControls();
       fetchTimeline(workload);
 	      if (persist) persistSelection(workload);
     }
@@ -971,7 +1007,10 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	          '<div class="kv"><span>current replicas</span><b>' + escapeHTML(replicasLabel(workload)) + '</b></div>' +
 	        '</div>' +
 	        '<div class="evidence-card">' +
-	          '<div class="section-title"><span>Replica timeline</span><span>' + escapeHTML(timelineState) + '</span></div>' +
+	          '<div class="timeline-bar">' +
+	            '<div class="section-title"><span>Replica timeline</span><span>' + escapeHTML(timelineState) + '</span></div>' +
+	            timelineWindowHTML() +
+	          '</div>' +
 	          graphLegendHTML(timelines[workload.id]) +
 	          replicaGraphHTML(workload, timelines[workload.id]) +
 	          pressureSummaryHTML(timelines[workload.id]) +
@@ -1032,6 +1071,14 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        '<span><i class="legend-swatch replicas"></i>available replicas</span>' +
 	        '<span><i class="legend-swatch demand"></i>demand trend, scaled to fit</span>' +
 	        '<span><i class="legend-swatch pressure"></i>' + escapeHTML(pressureSignalLabel(timeline)) + '</span>' +
+	      '</div>';
+	    }
+
+	    function timelineWindowHTML() {
+	      return '<div class="timeline-window" role="group" aria-label="timeline window">' +
+	        lookbackOptions.map(value =>
+	          '<button type="button" data-lookback="' + escapeHTML(value) + '" class="' + (value === selectedLookback ? 'active' : '') + '">' + escapeHTML(value) + '</button>'
+	        ).join('') +
 	      '</div>';
 	    }
 
@@ -1205,16 +1252,37 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 
 	    async function fetchTimeline(workload) {
 	      try {
-	        const path = '/api/workloads/' + encodeURIComponent(workload.namespace) + '/' + encodeURIComponent(workload.name) + '/timeline?lookback=30m';
+	        const requestedLookback = lookbackOptions.includes(selectedLookback) ? selectedLookback : '30m';
+	        const path = '/api/workloads/' + encodeURIComponent(workload.namespace) + '/' + encodeURIComponent(workload.name) + '/timeline?lookback=' + encodeURIComponent(requestedLookback);
 	        const response = await fetch(path, { cache: 'no-store' });
 	        if (!response.ok) return;
+	        if (requestedLookback !== selectedLookback) return;
 	        timelines[workload.id] = await response.json();
 	        if (selectedWorkloadId === workload.id) {
 	          detailBody.innerHTML = workloadDetailHTML(workload);
+	          bindTimelineWindowControls();
 	        }
 	      } catch {
 	        return;
 	      }
+	    }
+
+	    function bindTimelineWindowControls() {
+	      detailBody.querySelectorAll('.timeline-window button').forEach(button => {
+	        button.addEventListener('click', () => {
+	          const lookback = button.dataset.lookback;
+	          if (!lookbackOptions.includes(lookback) || lookback === selectedLookback) return;
+	          selectedLookback = lookback;
+	          const workload = overview.workloads.find(item => item.id === selectedWorkloadId);
+	          if (workload) {
+	            timelines[workload.id] = null;
+	            detailBody.innerHTML = workloadDetailHTML(workload);
+	            bindTimelineWindowControls();
+	            fetchTimeline(workload);
+	            persistSelection(workload);
+	          }
+	        });
+	      });
 	    }
 
 	    function timelinePath(history, field, maxValue, extent, extendSingle) {
@@ -1282,11 +1350,12 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	    }
 
 	    function persistSelection(workload) {
-	      const state = { namespace: workload.namespace, workload: workload.id };
+	      const state = { namespace: workload.namespace, workload: workload.id, lookback: selectedLookback };
 	      localStorage.setItem('skale-dashboard-selection', JSON.stringify(state));
 	      const params = new URLSearchParams();
 	      params.set('ns', state.namespace);
 	      params.set('workload', state.workload);
+	      if (state.lookback !== '30m') params.set('window', state.lookback);
 	      history.replaceState(null, '', '#' + params.toString());
 	    }
 
@@ -1294,16 +1363,19 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      const hash = new URLSearchParams(location.hash.replace(/^#/, ''));
 	      let namespace = hash.get('ns');
 	      let workload = hash.get('workload');
+	      let lookback = hash.get('window');
 	      if (!namespace) {
 	        try {
 	          const saved = JSON.parse(localStorage.getItem('skale-dashboard-selection') || '{}');
 	          namespace = saved.namespace;
 	          workload = saved.workload;
+	          lookback = saved.lookback;
 	        } catch {
 	          namespace = '';
 	          workload = '';
 	        }
 	      }
+	      selectedLookback = lookbackOptions.includes(lookback) ? lookback : '30m';
 	      if (namespace && byNamespace[namespace]) {
 	        selectNamespace(namespace, workload);
 	      }

@@ -278,6 +278,8 @@ func TestDashboardServerServesHTML(t *testing.T) {
 		"Workload Qualification Console",
 		"Namespaces",
 		"Replica timeline",
+		"timeline-window",
+		"lookbackOptions = ['30m', '1h', '3h', '6h']",
 		"Demand and resource pressure",
 		"overview-data",
 		"payments/checkout-api",
