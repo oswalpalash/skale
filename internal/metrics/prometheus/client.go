@@ -113,6 +113,9 @@ func (c HTTPAPI) QueryRange(ctx context.Context, query string, start, end time.T
 			Samples: make([]metrics.Sample, 0, len(rawSeries.Values)),
 		}
 		for _, sample := range rawSeries.Values {
+			if sample.Stale {
+				continue
+			}
 			series.Samples = append(series.Samples, sample.Sample)
 		}
 		result.Series = append(result.Series, series)
@@ -137,6 +140,7 @@ type rawQuerySeries struct {
 
 type rawSample struct {
 	metrics.Sample
+	Stale bool
 }
 
 func (s *rawSample) UnmarshalJSON(data []byte) error {
@@ -159,6 +163,13 @@ func (s *rawSample) UnmarshalJSON(data []byte) error {
 	var valueString string
 	if err := json.Unmarshal(raw[1], &valueString); err != nil {
 		return fmt.Errorf("%w: decode sample value: %v", ErrMalformedResponse, err)
+	}
+	if valueString == "NaN" {
+		s.Stale = true
+		s.Sample = metrics.Sample{
+			Timestamp: time.Unix(int64(timestamp), 0).UTC(),
+		}
+		return nil
 	}
 
 	value, err := strconv.ParseFloat(valueString, 64)

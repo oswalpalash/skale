@@ -78,6 +78,41 @@ func TestHTTPAPIQueryRangeRejectsMalformedFixture(t *testing.T) {
 	}
 }
 
+func TestHTTPAPIQueryRangeSkipsStaleNaNSamples(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"status": "success",
+			"data": {
+				"resultType": "matrix",
+				"result": [{
+					"metric": {"__name__": "skale_recommendation_recommended_replicas"},
+					"values": [[1777833590, "NaN"], [1777833620, "4"]]
+				}]
+			}
+		}`))
+	}))
+	t.Cleanup(server.Close)
+
+	api := HTTPAPI{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+	}
+	start := time.Date(2026, time.May, 3, 12, 0, 0, 0, time.UTC)
+	end := start.Add(5 * time.Minute)
+	result, err := api.QueryRange(context.Background(), `skale_recommendation_recommended_replicas`, start, end, 30*time.Second)
+	if err != nil {
+		t.Fatalf("QueryRange() error = %v", err)
+	}
+	if got, want := len(result.Series[0].Samples), 1; got != want {
+		t.Fatalf("sample count = %d, want %d", got, want)
+	}
+	if got := result.Series[0].Samples[0].Value; got != 4 {
+		t.Fatalf("remaining sample value = %v, want 4", got)
+	}
+}
+
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 
