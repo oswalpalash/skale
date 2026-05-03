@@ -711,6 +711,11 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       background: #7b857f;
     }
     .legend-swatch.replicas { background: var(--teal); }
+    .legend-swatch.forecast {
+      background: repeating-linear-gradient(90deg, #7b5cff 0 7px, transparent 7px 11px);
+      border-top: 3px solid #7b5cff;
+      height: 0;
+    }
     .legend-swatch.demand { background: #2b4650; height: 2px; }
     .legend-swatch.pressure {
       height: 12px;
@@ -775,6 +780,17 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
       accent-color: var(--amber);
     }
     .forecast-toggle input { accent-color: #7b5cff; }
+    .forecast-toggle.unavailable {
+      color: #9a6b42;
+      background: #fff8ee;
+      border-color: #ead7bb;
+    }
+    .forecast-status {
+      margin: -2px 0 12px;
+      color: #795437;
+      font-size: 12px;
+      font-weight: 700;
+    }
     .evidence-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -946,7 +962,7 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
         const saved = JSON.parse(localStorage.getItem('skale-dashboard-forecast-models') || '[]');
         if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
       } catch {}
-      return new Set(['timesfm']);
+      return new Set(['timesfm', 'seasonal_naive', 'holt_winters']);
     }
 
     function buildNamespaceIndex(workloads) {
@@ -1154,14 +1170,16 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      if (persist) persistSelection(workload);
     }
 
-	    function workloadDetailHTML(workload) {
-	      const policy = workload.policy ? workload.policy.namespace + '/' + workload.policy.name : 'none';
-	      const telemetry = telemetryLabel(workload);
-	      const forecast = workload.forecastMethod ? workload.forecastMethod + (workload.forecastConfidence ? ' ' + workload.forecastConfidence.toFixed(2) : '') : 'not evaluated';
-	      const timelineState = timelineStateLabel(workload, timelines[workload.id]);
-	      const reasonItems = reasons(workload).map(reason => '<div class="reason-item">' + escapeHTML(reason) + '</div>').join('');
-	      const evidenceNotice = evidenceMessage(workload);
-	      return '<div class="detail-title">' +
+	function workloadDetailHTML(workload) {
+		const timeline = timelines[workload.id];
+		ensureUsefulForecastVisibility(timeline);
+		const policy = workload.policy ? workload.policy.namespace + '/' + workload.policy.name : 'none';
+		const telemetry = telemetryLabel(workload);
+		const forecast = workload.forecastMethod ? workload.forecastMethod + (workload.forecastConfidence ? ' ' + workload.forecastConfidence.toFixed(2) : '') : 'not evaluated';
+		const timelineState = timelineStateLabel(workload, timeline);
+		const reasonItems = reasons(workload).map(reason => '<div class="reason-item">' + escapeHTML(reason) + '</div>').join('');
+		const evidenceNotice = evidenceMessage(workload);
+		return '<div class="detail-title">' +
 	          '<div>' +
 	            '<div class="eyebrow">' + escapeHTML(workload.namespace) + '</div>' +
 	            '<h3>' + escapeHTML(workload.name) + '</h3>' +
@@ -1178,16 +1196,17 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        '<div class="evidence-card">' +
 	          '<div class="timeline-bar">' +
 	            '<div class="section-title"><span>Replica timeline</span><span>' + escapeHTML(timelineState) + '</span></div>' +
-	            '<div class="timeline-controls">' +
-	              recommendationToggleHTML() +
-	              forecastToggleHTML(timelines[workload.id]) +
-	              timelineWindowHTML() +
-	            '</div>' +
-	          '</div>' +
-	          graphLegendHTML(timelines[workload.id]) +
-	          replicaGraphHTML(workload, timelines[workload.id]) +
-	          pressureSummaryHTML(timelines[workload.id]) +
-	          '<div class="notice">' + evidenceNotice + '</div>' +
+			'<div class="timeline-controls">' +
+			recommendationToggleHTML() +
+			forecastToggleHTML(timeline) +
+			timelineWindowHTML() +
+			'</div>' +
+			'</div>' +
+			graphLegendHTML(timeline) +
+			forecastStatusHTML(timeline) +
+			replicaGraphHTML(workload, timeline) +
+			pressureSummaryHTML(timeline) +
+			'<div class="notice">' + evidenceNotice + '</div>' +
 	        '</div>' +
 	        '<div>' +
 	          '<div class="section-title"><span>Blocking reasons</span><span>' + reasons(workload).length + '</span></div>' +
@@ -1195,16 +1214,24 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	        '</div>';
 	    }
 
-	    function replicaGraphHTML(workload, timeline) {
-	      const history = timelineHistory(workload, timeline);
-	      const hasRecommendation = showRecommendations && history.some(sample => sample.recommended != null);
-	      const values = history.flatMap(sample => showRecommendations ? [sample.current, sample.recommended] : [sample.current]).filter(value => value != null);
-	      const maxValue = Math.max(1, ...values, 6);
-	      const signalExtent = timelineExtent(history, timeline);
-	      const currentPath = timelinePath(history, 'current', maxValue, signalExtent, true);
-	      const recommendedPath = hasRecommendation ? timelinePath(history, 'recommended', maxValue, signalExtent, false) : '';
-	      const demandPath = signalLinePath(timeline && timeline.demand, signalExtent);
-	      const forecastPaths = forecastLinePaths(timeline, signalExtent);
+	function replicaGraphHTML(workload, timeline) {
+		const history = timelineHistory(workload, timeline);
+		const hasRecommendation = showRecommendations && history.some(sample => sample.recommended != null);
+		const forecastValues = timeline && Array.isArray(timeline.forecasts)
+			? timeline.forecasts
+				.filter(forecast => visibleForecastModels.has(forecast.model) && Array.isArray(forecast.points))
+				.flatMap(forecast => forecast.points.map(point => Number(point.value)).filter(Number.isFinite))
+			: [];
+		const values = history
+			.flatMap(sample => showRecommendations ? [sample.current, sample.recommended] : [sample.current])
+			.concat(forecastValues)
+			.filter(value => value != null);
+		const maxValue = Math.max(1, ...values, 6);
+		const signalExtent = timelineExtent(history, timeline);
+		const currentPath = timelinePath(history, 'current', maxValue, signalExtent, true);
+		const recommendedPath = hasRecommendation ? timelinePath(history, 'recommended', maxValue, signalExtent, false) : '';
+		const demandPath = signalLinePath(timeline && timeline.demand, signalExtent);
+		const forecastPaths = forecastLinePaths(timeline, signalExtent, maxValue);
 	      const pressureArea = pressureAreaPath(preferredPressureSamples(timeline), signalExtent);
 	      const currentPoints = timelinePoints(history, 'current', maxValue, 'point-current', signalExtent);
 	      const recommendedPoints = hasRecommendation ? timelinePoints(history, 'recommended', maxValue, 'point-recommended', signalExtent, true) : '';
@@ -1243,12 +1270,13 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      '</svg>';
 	    }
 
-	    function graphLegendHTML(timeline) {
-	      return '<div class="graph-legend">' +
-	        '<span><i class="legend-swatch replicas"></i>available replicas</span>' +
-	        '<span><i class="legend-swatch demand"></i>demand trend, scaled to fit</span>' +
-	        '<span><i class="legend-swatch pressure"></i>' + escapeHTML(pressureSignalLabel(timeline)) + '</span>' +
-	      '</div>';
+	function graphLegendHTML(timeline) {
+		return '<div class="graph-legend">' +
+			'<span><i class="legend-swatch replicas"></i>current replicas</span>' +
+			'<span><i class="legend-swatch forecast"></i>predicted replicas</span>' +
+			'<span><i class="legend-swatch demand"></i>demand trend, scaled to fit</span>' +
+			'<span><i class="legend-swatch pressure"></i>' + escapeHTML(pressureSignalLabel(timeline)) + '</span>' +
+			'</div>';
 	    }
 
 	    function timelineWindowHTML() {
@@ -1265,9 +1293,41 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 
     function forecastToggleHTML(timeline) {
       const models = forecastModels(timeline);
-      return models.map(model =>
-        '<label class="line-toggle forecast-toggle"><input type="checkbox" class="forecast-model-toggle" data-model="' + escapeHTML(model) + '" ' + (visibleForecastModels.has(model) ? 'checked' : '') + '> ' + escapeHTML(forecastLabel(model)) + '</label>'
-      ).join('');
+      return models.map(model => {
+        const forecast = forecastByModel(timeline, model);
+        const unavailable = forecast && forecast.error;
+        const title = unavailable ? ' title="' + escapeHTML(forecast.error) + '"' : '';
+        const label = forecastLabel(model) + (unavailable ? ' unavailable' : '');
+        return '<label class="line-toggle forecast-toggle ' + (unavailable ? 'unavailable' : '') + '"' + title + '><input type="checkbox" class="forecast-model-toggle" data-model="' + escapeHTML(model) + '" ' + (visibleForecastModels.has(model) ? 'checked' : '') + '> ' + escapeHTML(label) + '</label>';
+      }).join('');
+    }
+
+    function forecastStatusHTML(timeline) {
+      if (!timeline || !Array.isArray(timeline.forecasts)) return '';
+      const unavailable = timeline.forecasts
+        .filter(forecast => visibleForecastModels.has(forecast.model) && forecast.error)
+        .map(forecast => forecastLabel(forecast.model) + ': ' + forecast.error);
+      if (!unavailable.length) return '';
+      return '<div class="forecast-status">' + escapeHTML(unavailable.join(' · ')) + '</div>';
+    }
+
+    function forecastByModel(timeline, model) {
+      if (!timeline || !Array.isArray(timeline.forecasts)) return null;
+      return timeline.forecasts.find(forecast => forecast.model === model) || null;
+    }
+
+    function ensureUsefulForecastVisibility(timeline) {
+      if (!timeline || !Array.isArray(timeline.forecasts)) return;
+      const selected = timeline.forecasts.filter(forecast => visibleForecastModels.has(forecast.model));
+      const selectedHasLine = selected.some(forecast => Array.isArray(forecast.points) && forecast.points.length > 1);
+      if (selectedHasLine) return;
+      const available = timeline.forecasts
+        .filter(forecast => Array.isArray(forecast.points) && forecast.points.length > 1)
+        .map(forecast => forecast.model)
+        .filter(Boolean);
+      if (!available.length) return;
+      for (const model of available) visibleForecastModels.add(model);
+      localStorage.setItem('skale-dashboard-forecast-models', JSON.stringify([...visibleForecastModels]));
     }
 
     function forecastModels(timeline) {
@@ -1378,16 +1438,35 @@ var dashboardTemplate = htmltemplate.Must(htmltemplate.New("dashboard").Funcs(ht
 	      return points.map((point, index) => (index === 0 ? 'M' : 'L') + point.x + ' ' + point.y).join(' ');
 	    }
 
-    function forecastLinePaths(timeline, extent) {
+    function forecastLinePaths(timeline, extent, maxValue) {
       if (!timeline || !Array.isArray(timeline.forecasts)) return '';
       return timeline.forecasts
         .filter(forecast => visibleForecastModels.has(forecast.model) && Array.isArray(forecast.points) && forecast.points.length > 1)
         .map(forecast => {
-          const path = signalLinePath(forecast.points, extent);
+          const path = forecastReplicaPath(forecast.points, extent, maxValue);
           if (!path) return '';
           return '<path class="forecast-line ' + tone(forecast.model) + '" d="' + path + '"></path>';
         })
         .join('');
+    }
+
+    function forecastReplicaPath(samples, extent, maxValue) {
+      const points = forecastReplicaCoordinates(samples, extent, maxValue);
+      if (points.length < 2) return '';
+      return points.map((point, index) => (index === 0 ? 'M' : 'L') + point.x + ' ' + point.y).join(' ');
+    }
+
+    function forecastReplicaCoordinates(samples, extent, maxValue) {
+      if (!Array.isArray(samples) || samples.length === 0) return [];
+      return samples.map(sample => {
+        const t = Date.parse(sample.timestamp);
+        const value = Number(sample.value);
+        if (!Number.isFinite(t) || !Number.isFinite(value)) return null;
+        return {
+          x: chartXForTimestamp(t, extent),
+          y: chartYForValue(value, maxValue)
+        };
+      }).filter(Boolean);
     }
 
 	    function pressureAreaPath(samples, extent) {

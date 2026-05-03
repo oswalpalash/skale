@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skale-timesfm-runner
+  namespace: skale-system
+  labels:
+    app.kubernetes.io/name: skale-timesfm-runner
+    app.kubernetes.io/part-of: skale
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: skale-timesfm-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: skale-timesfm-runner
+        app.kubernetes.io/part-of: skale
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: timesfm
+          image: ghcr.io/oswalpalash/skale-timesfm-runner:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 600
+            periodSeconds: 30
+            timeoutSeconds: 2
+          env:
+            - name: SKALE_TIMESFM_MAX_CONTEXT
+              value: "1024"
+            - name: SKALE_TIMESFM_MAX_HORIZON
+              value: "256"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /home/skale/.cache/huggingface
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi
+      volumes:
+        - name: model-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skale-timesfm-runner
+  namespace: skale-system
+  labels:
+    app.kubernetes.io/name: skale-timesfm-runner
+    app.kubernetes.io/part-of: skale
+spec:
+  selector:
+    app.kubernetes.io/name: skale-timesfm-runner
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

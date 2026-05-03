@@ -38,7 +38,7 @@ type TimelinePoint struct {
 	State     string    `json:"state,omitempty"`
 }
 
-// ForecastLine is one model's display-only forecast path for the dashboard.
+// ForecastLine is one model's display-only predicted replica path for the dashboard.
 type ForecastLine struct {
 	Model       string         `json:"model,omitempty"`
 	Points      []SignalSample `json:"points,omitempty"`

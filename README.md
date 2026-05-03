@@ -152,10 +152,13 @@ to `1h`, `3h`, or `6h`, and can hide or show the recommendation overlay with a
 small graph checkbox. The selected namespace, workload, and time window are kept
 in the URL hash so refreshes preserve context.
 
-The same graph can show forecast overlays. TimesFM is selected by default when
-available, and seasonal naive / Holt-Winters can be toggled on for comparison.
-Those overlays are evidence for the recommendation path; they do not patch
-workload replicas.
+The same graph can show predicted replica overlays. Model demand forecasts are
+converted through the workload policy, observed per-replica capacity,
+`targetUtilization`, min/max replicas, and step bounds. TimesFM is included by
+default when available, and seasonal naive / Holt-Winters can be toggled for
+comparison. When the TimesFM runtime is not configured, the dashboard marks it
+unavailable instead of drawing a fake line. Those overlays are evidence for the
+recommendation path; they do not patch workload replicas.
 
 Recommendation history comes from Prometheus, not from the CRD. The CRD keeps
 only `.status.lastRecommendation`, which is intentionally the latest decision
@@ -177,6 +180,7 @@ For continuous live evaluation, configure the controller with:
 
 Additional optional flags:
 
+- `--timesfm-url`
 - `--timesfm-command`
 - `--timesfm-timeout`
 - `--promql-warmup`
@@ -190,11 +194,12 @@ Important details:
 - demand and replica queries are the minimum live-series contract
 - CPU and memory are treated as required for readiness on this branch
 - warmup may come from fixed policy configuration or a query-backed proxy
-- when `--timesfm-command` is configured, TimesFM is the preferred forecast
-  model; seasonal naive and Holt-Winters still run side by side for comparison
-- without `--timesfm-command`, the controller keeps the in-process v1
-  forecasters and the dashboard marks TimesFM as unavailable instead of
-  manufacturing a TimesFM line
+- when `--timesfm-url` or `--timesfm-command` is configured, TimesFM is the
+  preferred forecast model; seasonal naive and Holt-Winters still run side by
+  side for comparison
+- without a TimesFM runtime, the controller keeps the in-process v1 forecasters
+  and the dashboard marks TimesFM as unavailable instead of manufacturing a
+  TimesFM line
 - surfaced recommendation replicas are exported as controller Prometheus
   metrics only after telemetry is ready; learning-phase recommendations are not
   published as numeric recommendation samples
@@ -202,6 +207,27 @@ Important details:
   one healthy-ratio series in the `0..1` range
 - node headroom is a conservative request-based sanity check, not a scheduler or
   node autoscaler simulation
+
+## Optional TimesFM Runner
+
+The default controller image does not include Python, PyTorch, or TimesFM model
+weights. For local Kubernetes demos, build and load the separate runner image:
+
+```bash
+make timesfm-docker-build
+kind load docker-image ghcr.io/oswalpalash/skale-timesfm-runner:dev --name skale
+kubectl apply -f demo/manifests/timesfm-runner.yaml
+kubectl -n skale-system rollout status deploy/skale-timesfm-runner --timeout=15m
+```
+
+Then start the controller with:
+
+```bash
+--timesfm-url=http://skale-timesfm-runner.skale-system.svc:8080/forecast
+```
+
+The runner installs the upstream TimesFM repository with its `torch` extra and
+keeps model loading out of the controller process.
 
 ## Safety Behavior
 

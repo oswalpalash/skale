@@ -28,6 +28,7 @@ func main() {
 	var discoveryConfigMapName string
 	var discoveryInterval time.Duration
 	var promConfig prometheusRuntimeConfig
+	var timesFMURL string
 	var timesFMCommand string
 	var timesFMTimeout time.Duration
 
@@ -57,6 +58,7 @@ func main() {
 	flag.StringVar(&promConfig.ErrorsQuery, "promql-errors", "", "optional PromQL query for error-rate enrichment")
 	flag.StringVar(&promConfig.WarmupQuery, "promql-warmup", "", "optional PromQL query for warmup observations when warmup is not fixed in policy")
 	flag.StringVar(&promConfig.NodeHeadroomQuery, "promql-node-headroom", "", "optional PromQL query for node-headroom telemetry enrichment")
+	flag.StringVar(&timesFMURL, "timesfm-url", "", "optional TimesFM HTTP forecast endpoint; preferred Kubernetes runtime integration")
 	flag.StringVar(&timesFMCommand, "timesfm-command", "", "optional external TimesFM runner command; when set, TimesFM is the primary forecast model")
 	flag.DurationVar(&timesFMTimeout, "timesfm-timeout", 30*time.Second, "timeout for one TimesFM command invocation")
 	flag.Parse()
@@ -99,8 +101,13 @@ func main() {
 	if metricsProvider == nil && promConfig.enabled() {
 		metricsProvider, dependencyEvaluator = promConfig.build()
 	}
-	if command := strings.Fields(timesFMCommand); len(command) > 0 {
-		timesFM := forecast.CommandModel{Command: command, Timeout: timesFMTimeout}
+	if strings.TrimSpace(timesFMURL) != "" || strings.TrimSpace(timesFMCommand) != "" {
+		var timesFM forecast.Model
+		if strings.TrimSpace(timesFMURL) != "" {
+			timesFM = forecast.HTTPModel{URL: timesFMURL, Timeout: timesFMTimeout}
+		} else {
+			timesFM = forecast.CommandModel{Command: strings.Fields(timesFMCommand), Timeout: timesFMTimeout}
+		}
 		forecastModel = forecast.SideBySideModel{
 			Primary:       forecast.TimesFMModelName,
 			TimesFM:       timesFM,
@@ -110,7 +117,7 @@ func main() {
 		dashboardForecasts = []forecast.Model{timesFM, forecast.SeasonalNaiveModel{}, forecast.HoltWintersModel{}}
 	} else {
 		dashboardForecasts = []forecast.Model{
-			forecast.UnavailableModel{NameValue: forecast.TimesFMModelName, Reason: "timesfm command is not configured"},
+			forecast.UnavailableModel{NameValue: forecast.TimesFMModelName, Reason: "timesfm runtime is not configured"},
 			forecast.SeasonalNaiveModel{},
 			forecast.HoltWintersModel{},
 		}

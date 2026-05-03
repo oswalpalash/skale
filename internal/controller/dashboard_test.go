@@ -16,6 +16,7 @@ import (
 	skalev1alpha1 "github.com/oswalpalash/skale/api/v1alpha1"
 	"github.com/oswalpalash/skale/internal/dashboard"
 	"github.com/oswalpalash/skale/internal/discovery"
+	"github.com/oswalpalash/skale/internal/forecast"
 	"github.com/oswalpalash/skale/internal/metrics"
 )
 
@@ -154,6 +155,85 @@ func TestDashboardServerServesTimelineAPI(t *testing.T) {
 	}
 	if timeline.Recommendation == nil || timeline.Recommendation.Replicas != 5 {
 		t.Fatalf("recommendation = %#v, want 5 replicas", timeline.Recommendation)
+	}
+}
+
+func TestDashboardTimelineForecastsAreReplicaPredictions(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.May, 3, 12, 0, 0, 0, time.UTC)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(discoveryTestScheme(t)).
+		WithObjects(&skalev1alpha1.PredictiveScalingPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "checkout-policy", Namespace: "payments"},
+			Spec: skalev1alpha1.PredictiveScalingPolicySpec{
+				TargetRef:         skalev1alpha1.TargetReference{Name: "checkout-api"},
+				ForecastHorizon:   metav1.Duration{Duration: 2 * time.Minute},
+				TargetUtilization: 0.75,
+				MinReplicas:       1,
+				MaxReplicas:       10,
+			},
+			Status: skalev1alpha1.PredictiveScalingPolicyStatus{
+				LastRecommendation: &skalev1alpha1.RecommendationSummary{
+					State:               skalev1alpha1.RecommendationStateAvailable,
+					RecommendedReplicas: 3,
+				},
+			},
+		}).
+		Build()
+	server := DashboardServer{
+		Client: k8sClient,
+		Metrics: dashboardMetricsProvider{
+			snapshot: metrics.Snapshot{
+				Demand: metrics.SignalSeries{
+					Name: metrics.SignalDemand,
+					Samples: []metrics.Sample{
+						{Timestamp: now.Add(-2 * time.Minute), Value: 30},
+						{Timestamp: now.Add(-time.Minute), Value: 30},
+					},
+				},
+				Replicas: metrics.SignalSeries{
+					Name: metrics.SignalReplicas,
+					Samples: []metrics.Sample{
+						{Timestamp: now.Add(-2 * time.Minute), Value: 3},
+						{Timestamp: now.Add(-time.Minute), Value: 3},
+					},
+				},
+			},
+		},
+		Forecasts: []forecast.Model{dashboardForecastModel{
+			result: forecast.Result{
+				Model:       "test_model",
+				GeneratedAt: now,
+				Horizon:     2 * time.Minute,
+				Step:        time.Minute,
+				Points: []forecast.Point{
+					{Timestamp: now.Add(time.Minute), Value: 30},
+					{Timestamp: now.Add(2 * time.Minute), Value: 60},
+				},
+				Confidence:  0.9,
+				Reliability: forecast.ReliabilityHigh,
+			},
+		}},
+		Now: func() time.Time { return now },
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workloads/payments/checkout-api/timeline?lookback=5m", nil)
+	server.handleTimeline(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var timeline dashboard.Timeline
+	if err := json.Unmarshal(recorder.Body.Bytes(), &timeline); err != nil {
+		t.Fatalf("unmarshal timeline: %v", err)
+	}
+	if got, want := len(timeline.Forecasts), 1; got != want {
+		t.Fatalf("forecasts = %d, want %d: %#v", got, want, timeline.Forecasts)
+	}
+	if got := timeline.Forecasts[0].Points; len(got) != 2 || got[0].Value != 3 || got[1].Value != 5 {
+		t.Fatalf("forecast replica points = %#v, want 3 then 5", got)
 	}
 }
 
@@ -374,6 +454,22 @@ type dashboardMetricsProvider struct {
 	snapshot              metrics.Snapshot
 	err                   error
 	recommendationHistory []metrics.RecommendationSample
+}
+
+type dashboardForecastModel struct {
+	result forecast.Result
+	err    error
+}
+
+func (m dashboardForecastModel) Name() string {
+	if m.result.Model != "" {
+		return m.result.Model
+	}
+	return "test_model"
+}
+
+func (m dashboardForecastModel) Forecast(context.Context, forecast.Input) (forecast.Result, error) {
+	return m.result, m.err
 }
 
 func (p dashboardMetricsProvider) LoadWindow(context.Context, metrics.Target, metrics.Window) (metrics.Snapshot, error) {

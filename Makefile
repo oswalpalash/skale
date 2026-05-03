@@ -4,9 +4,10 @@ VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 IMAGE ?= ghcr.io/oswalpalash/skale-controller:dev
+TIMESFM_IMAGE ?= ghcr.io/oswalpalash/skale-timesfm-runner:dev
 LDFLAGS ?= -X github.com/oswalpalash/skale/internal/version.Version=$(VERSION) -X github.com/oswalpalash/skale/internal/version.Commit=$(COMMIT) -X github.com/oswalpalash/skale/internal/version.BuildDate=$(BUILD_DATE)
 
-.PHONY: build test test-ci lint generate manifests docker-build demo-design-partner demo-live-hpa demo-live-hpa-learning kind-up kind-down kind-status
+.PHONY: build test test-ci lint generate manifests docker-build timesfm-docker-build demo-design-partner demo-live-hpa demo-live-hpa-learning kind-up kind-down kind-status
 
 build:
 	go build -ldflags "$(LDFLAGS)" ./...
@@ -68,6 +69,9 @@ docker-build:
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t $(IMAGE) .
+
+timesfm-docker-build:
+	docker build -f Dockerfile.timesfm -t $(TIMESFM_IMAGE) .
 
 $(CONTROLLER_GEN):
 	mkdir -p $(LOCALBIN)

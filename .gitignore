@@ -8,4 +8,6 @@ coverage.out
 *.tmp
 *.swp
 *.swo
+__pycache__/
+*.pyc
 .envrc

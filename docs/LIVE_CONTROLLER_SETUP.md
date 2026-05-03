@@ -145,6 +145,7 @@ The controller exposes the following live-telemetry flags:
 
 - `--prometheus-url`
 - `--prometheus-step`
+- `--timesfm-url`
 - `--timesfm-command`
 - `--timesfm-timeout`
 - `--promql-demand`
@@ -175,12 +176,32 @@ The demand and replica queries may use:
 ## TimesFM Forecasting
 
 Skale can use TimesFM as the preferred forecast model through an external
-command runner. This keeps Python, model weights, and accelerator/runtime
-packaging outside the default Go controller image.
+runtime. The default controller image stays Go-only. Python, PyTorch, model
+weights, and checkpoint cache belong in a separate runner.
 
-The command receives JSON on stdin and returns JSON on stdout. The helper at
+For Kubernetes demos, use the HTTP runner:
+
+```bash
+make timesfm-docker-build
+kind load docker-image ghcr.io/oswalpalash/skale-timesfm-runner:dev --name skale
+kubectl apply -f demo/manifests/timesfm-runner.yaml
+kubectl -n skale-system rollout status deploy/skale-timesfm-runner --timeout=15m
+kubectl -n skale-system set args deploy/skale-controller --containers=manager -- \
+  --leader-elect \
+  --metrics-bind-address=:8080 \
+  --health-probe-bind-address=:8081 \
+  --dashboard-bind-address=:8082 \
+  --timesfm-url=http://skale-timesfm-runner.skale-system.svc:8080/forecast
+```
+
+Keep the existing Prometheus query flags when patching a live demo controller.
+The command above shows only the TimesFM-specific runtime shape.
+
+For custom images or local non-Kubernetes runs, the command runner is still
+supported. The command receives JSON on stdin and returns JSON on stdout. The
+helper at
 [`hack/timesfm-forecast.py`](../hack/timesfm-forecast.py) implements that
-protocol using the public TimesFM Python package:
+protocol using the upstream TimesFM Python package:
 
 ```bash
 --timesfm-command=/opt/skale/timesfm-forecast.py
@@ -190,12 +211,19 @@ When this flag is set, the controller evaluates TimesFM, seasonal naive, and
 Holt-Winters side by side, but prefers TimesFM when it produces a usable result.
 If TimesFM fails or is not configured, Skale fails closed or falls back according
 to the existing model-selection path and surfaces the reason. The dashboard
-shows TimesFM by default and lets operators toggle the other model overlays on
-the graph.
+marks TimesFM unavailable instead of drawing a fake TimesFM line. It also keeps
+seasonal naive and Holt-Winters overlays available so the graph does not become
+blank while the TimesFM runner is starting or misconfigured.
 
-Production packaging is intentionally left to the operator: use a custom image,
-sidecar-accessible executable, or another controlled runtime path that can load
-the TimesFM dependencies and checkpoint cache.
+Dashboard model overlays are predicted replica counts, not raw demand units.
+The controller converts each model forecast through the workload policy,
+observed per-replica capacity, `targetUtilization`, min/max replicas, and step
+bounds so operators can compare Skale's predicted replica path against the
+current/HPA replica path.
+
+Production packaging is intentionally explicit: use a separate runner service,
+custom image, or controlled runtime path that can load the TimesFM dependencies
+and checkpoint cache.
 
 ## Example Deployment Args
 
@@ -207,6 +235,7 @@ args:
   - --leader-elect
   - --metrics-bind-address=:8080
   - --health-probe-bind-address=:8081
+  - --timesfm-url=http://skale-timesfm-runner.skale-system.svc:8080/forecast
   - --prometheus-url=http://prometheus.monitoring.svc:9090
   - --promql-demand=sum(rate(http_requests_total{namespace="$namespace",deployment="$deployment"}[5m]))
   - --promql-replicas=max(kube_deployment_status_replicas_available{namespace="$namespace",deployment="$deployment"})

@@ -37,7 +37,7 @@ def main() -> int:
     if horizon <= 0:
         return fail("horizonPoints must be positive")
 
-    values = np.asarray([float(point["value"]) for point in series], dtype=np.float32)
+    values = np.asarray([float(point.get("value", 0.0)) for point in series], dtype=np.float32)
     model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(MODEL_ID)
     model.compile(
         timesfm.ForecastConfig(

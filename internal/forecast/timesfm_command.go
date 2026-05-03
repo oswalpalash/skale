@@ -23,22 +23,25 @@ func (m CommandModel) Name() string {
 }
 
 func (m CommandModel) Forecast(ctx context.Context, input Input) (Result, error) {
+	return forecastWithTimesFMProvider(ctx, input, m.forecastValues)
+}
+
+type timesFMValueProvider func(ctx context.Context, prepared preparedInput, series []Point, horizonPoints int) ([]float64, error)
+
+func forecastWithTimesFMProvider(ctx context.Context, input Input, provider timesFMValueProvider) (Result, error) {
 	prepared, err := prepareInput(input)
 	if err != nil {
 		return Result{}, err
 	}
-	if len(m.Command) == 0 || m.Command[0] == "" {
-		return Result{}, fmt.Errorf("%w: timesfm command is not configured", ErrNoForecastResult)
-	}
 
-	forecastValues, err := m.forecastValues(ctx, prepared, prepared.series, prepared.horizonPoints)
+	forecastValues, err := provider(ctx, prepared, prepared.series, prepared.horizonPoints)
 	if err != nil {
 		return Result{}, err
 	}
 	validation := Validation{}
 	if len(prepared.series) > prepared.horizonPoints+1 {
 		holdoutStart := len(prepared.series) - prepared.horizonPoints
-		validationValues, err := m.forecastValues(ctx, prepared, prepared.series[:holdoutStart], prepared.horizonPoints)
+		validationValues, err := provider(ctx, prepared, prepared.series[:holdoutStart], prepared.horizonPoints)
 		if err == nil {
 			validation = evaluateForecast(values(prepared.series[holdoutStart:]), validationValues)
 		}
@@ -75,6 +78,9 @@ func (m CommandModel) Forecast(ctx context.Context, input Input) (Result, error)
 }
 
 func (m CommandModel) forecastValues(ctx context.Context, prepared preparedInput, series []Point, horizonPoints int) ([]float64, error) {
+	if len(m.Command) == 0 || m.Command[0] == "" {
+		return nil, fmt.Errorf("%w: timesfm command is not configured", ErrNoForecastResult)
+	}
 	timeout := m.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second

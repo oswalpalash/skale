@@ -2,8 +2,11 @@ package forecast
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"testing"
@@ -298,12 +301,16 @@ func TestCommandModelUsesJSONProtocol(t *testing.T) {
 	t.Parallel()
 
 	helper := writeTimesFMHelper(t)
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
 	start := time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC)
 	step := time.Minute
 	series := buildLinearSeries(start, step, 8, 10, 2)
 	result, err := CommandModel{
-		Command: []string{helper},
-		Timeout: 5 * time.Second,
+		Command: []string{python, helper},
+		Timeout: 10 * time.Second,
 	}.Forecast(context.Background(), Input{
 		Series:      series,
 		EvaluatedAt: series[len(series)-1].Timestamp,
@@ -320,6 +327,55 @@ func TestCommandModelUsesJSONProtocol(t *testing.T) {
 	if result.Validation.HoldoutPoints != 2 {
 		t.Fatalf("holdout points = %d, want 2", result.Validation.HoldoutPoints)
 	}
+}
+
+func TestHTTPModelUsesJSONProtocol(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		var payload commandRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		series := payload.Series
+		if len(series) == 0 {
+			t.Fatal("request series was empty")
+		}
+		step := 0.0
+		if len(series) > 1 {
+			step = series[len(series)-1].Value - series[len(series)-2].Value
+		}
+		last := series[len(series)-1].Value
+		values := make([]float64, payload.HorizonPoints)
+		for i := range values {
+			values[i] = last + step*float64(i+1)
+		}
+		_ = json.NewEncoder(w).Encode(commandResponse{Model: TimesFMModelName, Values: values})
+	}))
+	defer server.Close()
+
+	start := time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC)
+	step := time.Minute
+	series := buildLinearSeries(start, step, 8, 10, 2)
+	result, err := HTTPModel{
+		URL:     server.URL,
+		Timeout: 5 * time.Second,
+	}.Forecast(context.Background(), Input{
+		Series:      series,
+		EvaluatedAt: series[len(series)-1].Timestamp,
+		Horizon:     2 * time.Minute,
+		Step:        step,
+	})
+	if err != nil {
+		t.Fatalf("Forecast() error = %v", err)
+	}
+	if result.Model != TimesFMModelName {
+		t.Fatalf("model = %q, want timesfm", result.Model)
+	}
+	assertPointValues(t, result.Points, []float64{26, 28}, 1e-9)
 }
 
 type staticModel struct {
@@ -357,9 +413,6 @@ json.dump({"model": "timesfm", "values": [last + step * (i + 1) for i in range(h
 `
 	if err := os.WriteFile(path, []byte(source), 0o755); err != nil {
 		t.Fatalf("write helper: %v", err)
-	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not available")
 	}
 	return path
 }

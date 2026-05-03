@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -297,15 +298,83 @@ func (s *DashboardServer) timelineForecasts(ctx context.Context, snapshot metric
 		line.Confidence = result.Confidence
 		line.Reliability = string(result.Reliability)
 		line.Selected = result.Model == forecast.TimesFMModelName
-		for _, point := range result.Points {
-			line.Points = append(line.Points, dashboard.SignalSample{
-				Timestamp: point.Timestamp,
-				Value:     point.Value,
-			})
+		replicaPoints, err := forecastReplicaSamples(result.Points, snapshot, spec, evaluatedAt)
+		if err != nil {
+			line.Error = err.Error()
+			lines = append(lines, line)
+			continue
 		}
+		line.Points = replicaPoints
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func forecastReplicaSamples(points []forecast.Point, snapshot metrics.Snapshot, spec skalev1alpha1.PredictiveScalingPolicySpec, evaluatedAt time.Time) ([]dashboard.SignalSample, error) {
+	capacity := dashboardPerReplicaCapacity(snapshot, spec, evaluatedAt)
+	if capacity <= 0 {
+		return nil, fmt.Errorf("replica forecast needs current demand and replica capacity")
+	}
+	currentReplicasValue, ok := valueAtOrBefore(snapshot.Replicas.Samples, evaluatedAt)
+	if !ok || currentReplicasValue < 1 {
+		return nil, fmt.Errorf("replica forecast needs current replicas")
+	}
+	currentReplicas := int32(math.Round(currentReplicasValue))
+	out := make([]dashboard.SignalSample, 0, len(points))
+	for _, point := range points {
+		replicas := requiredDashboardReplicas(point.Value, capacity)
+		replicas = boundDashboardReplicas(replicas, spec.MinReplicas, spec.MaxReplicas)
+		replicas = stepBoundDashboardReplicas(replicas, currentReplicas, spec)
+		out = append(out, dashboard.SignalSample{
+			Timestamp: point.Timestamp,
+			Value:     float64(replicas),
+		})
+	}
+	return out, nil
+}
+
+func dashboardPerReplicaCapacity(snapshot metrics.Snapshot, spec skalev1alpha1.PredictiveScalingPolicySpec, evaluatedAt time.Time) float64 {
+	estimate := controllerCapacityEstimate(snapshot, evaluatedAt, spec.TargetUtilization)
+	if estimate != nil && estimate.Estimated && estimate.PerReplicaCapacity > 0 {
+		return estimate.PerReplicaCapacity
+	}
+	currentDemand, demandOK := valueAtOrBefore(snapshot.Demand.Samples, evaluatedAt)
+	currentReplicas, replicasOK := valueAtOrBefore(snapshot.Replicas.Samples, evaluatedAt)
+	if !demandOK || !replicasOK || currentDemand <= 0 || currentReplicas < 1 || spec.TargetUtilization <= 0 {
+		return 0
+	}
+	return currentDemand / (currentReplicas * spec.TargetUtilization)
+}
+
+func requiredDashboardReplicas(forecastedDemand, perReplicaCapacity float64) int32 {
+	if forecastedDemand <= 0 || perReplicaCapacity <= 0 {
+		return 0
+	}
+	required := math.Ceil(forecastedDemand / perReplicaCapacity)
+	if required > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(required)
+}
+
+func boundDashboardReplicas(replicas, minReplicas, maxReplicas int32) int32 {
+	if minReplicas > 0 && replicas < minReplicas {
+		replicas = minReplicas
+	}
+	if maxReplicas > 0 && replicas > maxReplicas {
+		replicas = maxReplicas
+	}
+	return replicas
+}
+
+func stepBoundDashboardReplicas(replicas, currentReplicas int32, spec skalev1alpha1.PredictiveScalingPolicySpec) int32 {
+	if spec.ScaleUp != nil && spec.ScaleUp.MaxReplicasChange > 0 && replicas > currentReplicas+spec.ScaleUp.MaxReplicasChange {
+		return currentReplicas + spec.ScaleUp.MaxReplicasChange
+	}
+	if spec.ScaleDown != nil && spec.ScaleDown.MaxReplicasChange > 0 && replicas < currentReplicas-spec.ScaleDown.MaxReplicasChange {
+		return currentReplicas - spec.ScaleDown.MaxReplicasChange
+	}
+	return replicas
 }
 
 func evaluatedAtFromTimeline(timeline dashboard.Timeline, fallback time.Time) time.Time {
